@@ -1,0 +1,37 @@
+instance_name: client-node
+role: client
+paths:
+  install_dir: runtime/bin
+  config_root: runtime/config
+  log_dir: runtime/logs
+  runtime_dir: runtime/run
+  systemd_unit_dir: /etc/systemd/system
+binary:
+  arch: amd64
+  os: linux
+  channel: github
+service:
+  service_name: frpdeck-client-node-frpc
+  user: root
+  group: root
+  restart: always
+  restart_sec: 2
+  wanted_by: multi-user.target
+client:
+  user: client-node
+  server_addr: PLEASE_FILL_SERVER_ADDR
+  server_port: 7000
+  transport_protocol: tcp
+  web_server:
+    addr: 127.0.0.1
+    port: 7400
+  login_fail_exit: true
+  log:
+    to: logs/frpc.log
+    level: info
+    max_days: 7
+    disable_print_color: true
+  auth:
+    method: token
+    token_file: secrets/token.txt
+  includes_enabled: true

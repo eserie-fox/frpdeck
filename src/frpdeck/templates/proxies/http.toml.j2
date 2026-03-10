@@ -1,0 +1,23 @@
+[[proxies]]
+name = "{{ proxy.name }}"
+type = "http"
+localIP = "{{ proxy.local_ip }}"
+localPort = {{ proxy.local_port }}
+{% if proxy.custom_domains %}customDomains = [{% for domain in proxy.custom_domains %}"{{ domain }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+{% endif %}{% if proxy.subdomain %}subdomain = "{{ proxy.subdomain }}"
+{% endif %}{% if proxy.description %}# {{ proxy.description }}
+{% endif %}
+
+[proxies.transport]
+useEncryption = {{ "true" if proxy.transport.use_encryption else "false" }}
+useCompression = {{ "true" if proxy.transport.use_compression else "false" }}
+{% if proxy.transport.bandwidth_limit %}bandwidthLimit = "{{ proxy.transport.bandwidth_limit }}"
+{% endif %}{% if proxy.transport.bandwidth_limit_mode %}bandwidthLimitMode = "{{ proxy.transport.bandwidth_limit_mode }}"
+{% endif %}
+
+{% if proxy.annotations %}[proxies.annotations]
+{% for key, value in proxy.annotations.items() %}{{ key }} = "{{ value }}"
+{% endfor %}{% endif %}
+{% if proxy.metadatas %}[proxies.metadatas]
+{% for key, value in proxy.metadatas.items() %}{{ key }} = "{{ value }}"
+{% endfor %}{% endif %}

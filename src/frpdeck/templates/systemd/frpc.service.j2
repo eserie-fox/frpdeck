@@ -1,0 +1,16 @@
+[Unit]
+Description=frpdeck FRP Client {{ service.service_name }}
+After=network.target
+
+[Service]
+Type=simple
+User={{ service.user }}
+Group={{ service.group }}
+ExecStart={{ binary_path }} -c {{ config_path }}
+ExecReload={{ binary_path }} reload -c {{ config_path }}
+Restart={{ service.restart }}
+RestartSec={{ service.restart_sec }}
+LimitNOFILE=infinity
+
+[Install]
+WantedBy={{ service.wanted_by }}

@@ -1,0 +1,35 @@
+instance_name: server-node
+role: server
+paths:
+  install_dir: runtime/bin
+  config_root: runtime/config
+  log_dir: runtime/logs
+  runtime_dir: runtime/run
+  systemd_unit_dir: /etc/systemd/system
+binary:
+  arch: amd64
+  os: linux
+  channel: github
+service:
+  service_name: frpdeck-server-node-frps
+  user: root
+  group: root
+  restart: always
+  restart_sec: 2
+  wanted_by: multi-user.target
+server:
+  bind_addr: 0.0.0.0
+  bind_port: 7000
+  kcp_bind_port: 7000
+  quic_bind_port: 7001
+  vhost_http_port: 80
+  vhost_https_port: 443
+  subdomain_host: PLEASE_FILL_DOMAIN
+  log:
+    to: logs/frps.log
+    level: info
+    max_days: 7
+    disable_print_color: true
+  auth:
+    method: token
+    token_file: secrets/token.txt

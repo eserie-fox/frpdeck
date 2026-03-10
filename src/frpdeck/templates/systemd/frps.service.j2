@@ -1,0 +1,16 @@
+[Unit]
+Description=frpdeck FRP Server {{ service.service_name }}
+After=network.target
+
+[Service]
+Type=simple
+User={{ service.user }}
+Group={{ service.group }}
+{% if low_port_capability %}AmbientCapabilities=CAP_NET_BIND_SERVICE
+{% endif %}ExecStart={{ binary_path }} -c {{ config_path }}
+Restart={{ service.restart }}
+RestartSec={{ service.restart_sec }}
+LimitNOFILE=infinity
+
+[Install]
+WantedBy={{ service.wanted_by }}

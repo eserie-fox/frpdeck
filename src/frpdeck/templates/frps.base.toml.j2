@@ -1,0 +1,27 @@
+bindAddr = "{{ bind_addr }}"
+bindPort = {{ bind_port }}
+{% if kcp_bind_port is not none %}kcpBindPort = {{ kcp_bind_port }}
+{% endif %}{% if quic_bind_port is not none %}quicBindPort = {{ quic_bind_port }}
+{% endif %}{% if vhost_http_port is not none %}vhostHTTPPort = {{ vhost_http_port }}
+{% endif %}{% if vhost_https_port is not none %}vhostHTTPSPort = {{ vhost_https_port }}
+{% endif %}{% if subdomain_host %}subDomainHost = "{{ subdomain_host }}"
+{% endif %}
+
+[log]
+{% if log.to %}to = "{{ log.to }}"
+{% endif %}level = "{{ log.level }}"
+maxDays = {{ log.max_days }}
+disablePrintColor = {{ "true" if log.disable_print_color else "false" }}
+
+[auth]
+method = "{{ auth.method }}"
+{% if auth.token %}token = "{{ auth.token }}"
+{% endif %}
+
+{% if auth.token_file %}
+[auth.tokenSource]
+type = "file"
+
+[auth.tokenSource.file]
+path = "{{ auth.token_file }}"
+{% endif %}

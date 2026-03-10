@@ -1,0 +1,16 @@
+[[proxies]]
+name = "grape_web_http"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8080
+customDomains = ["PLEASE_FILL_DOMAIN"]
+# example http proxy
+
+[proxies.transport]
+useEncryption = false
+useCompression = true
+
+[proxies.annotations]
+owner = "example"
+[proxies.metadatas]
+env = "demo"
