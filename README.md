@@ -2,8 +2,6 @@
 
 `frpdeck` is a Python 3.11+ CLI for managing FRP client and server deployments from structured YAML source files. This first stage focuses on deployment and maintenance workflows: initialize instance directories, validate configs, render FRP and systemd files, apply them locally, inspect status, and upgrade binaries.
 
-The existing [frp](./frp) directory remains in the repository only as reference material for old shell behavior. The new project does not execute those scripts at runtime. Their hardcoded `/root/frp` assumptions have been replaced by explicit path models that resolve relative to each instance directory.
-
 ## Current capabilities
 
 - `init` creates a new client or server instance directory.

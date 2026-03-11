@@ -26,7 +26,7 @@ server:
   vhost_https_port: 443
   subdomain_host: PLEASE_FILL_DOMAIN
   log:
-    to: logs/frps.log
+    to: runtime/logs/frps.log
     level: info
     max_days: 7
     disable_print_color: true

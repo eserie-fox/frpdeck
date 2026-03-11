@@ -25,9 +25,9 @@ client:
   web_server:
     addr: 127.0.0.1
     port: 7400
-  login_fail_exit: true
+  login_fail_exit: false
   log:
-    to: logs/frpc.log
+    to: runtime/logs/frpc.log
     level: info
     max_days: 7
     disable_print_color: true
