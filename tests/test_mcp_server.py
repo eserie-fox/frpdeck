@@ -268,3 +268,19 @@ def test_mcp_main_accepts_instance_dir_without_stdout(monkeypatch, tmp_path: Pat
     captured = capsys.readouterr()
     assert captured.out == ""
     assert calls
+
+
+def test_mcp_write_audit_marks_actor_as_mcp(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    payload = _call_tool(
+        create_mcp_server(tmp_path),
+        "add_proxy",
+        {"proxy_spec": {"type": "tcp", "name": "new-ssh", "local_ip": "127.0.0.1", "local_port": 2200, "remote_port": 6200}},
+    )
+
+    assert payload["ok"] is True
+    audit_path = tmp_path / "state" / "audit" / "audit.jsonl"
+    records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert records[-1]["actor"]["source"] == "mcp"
+    assert records[-1]["actor"]["mode"] == "bound"

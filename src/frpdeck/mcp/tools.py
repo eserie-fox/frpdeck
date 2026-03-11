@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from frpdeck.domain.facade_models import FacadeResult
 from frpdeck.facade.proxy_facade import ProxyFacade
 from frpdeck.mcp.serialization import MCP_SCHEMA_VERSION, internal_error_result, resolve_instance_dir, to_jsonable
+from frpdeck.services.audit import audit_actor
 
 
 class ServerInfoResult(BaseModel):
@@ -91,10 +92,18 @@ def _finalize_facade_result(operation: str, instance_dir: str | Path, result: Fa
         return internal_error_result(operation, instance_dir, exc)
 
 
-def _safe_facade_call(operation: str, instance_dir: str | Path, call: Any) -> FacadeResult:
+def _safe_facade_call(
+    operation: str,
+    instance_dir: str | Path,
+    call: Any,
+    *,
+    audit_source: str = "cli",
+    audit_meta: dict[str, Any] | None = None,
+) -> FacadeResult:
     """Collapse unexpected adapter failures into a stable MCP response."""
     try:
-        result = call()
+        with audit_actor(audit_source, **(audit_meta or {})):
+            result = call()
     except Exception as exc:
         return internal_error_result(operation, instance_dir, exc)
     return _finalize_facade_result(operation, instance_dir, result)
@@ -119,6 +128,7 @@ def register_tools(
 ) -> None:
     """Register structured proxy tools on the MCP server."""
     tool_facade = facade or ProxyFacade()
+    audit_meta = {"mode": mode, "server_name": server_name}
 
     @server.tool()
     def server_info() -> ServerInfoResult:
@@ -132,17 +142,17 @@ def register_tools(
         @server.tool()
         def list_proxies() -> FacadeResult:
             """List proxies from proxies.yaml for the bound instance directory."""
-            return _safe_facade_call("list_proxies", bound_instance_dir, lambda: list_proxies_tool(bound_instance_dir, facade=tool_facade))
+            return _safe_facade_call("list_proxies", bound_instance_dir, lambda: list_proxies_tool(bound_instance_dir, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
         @server.tool()
         def get_proxy(name: str) -> FacadeResult:
             """Get a single proxy by name from proxies.yaml."""
-            return _safe_facade_call("get_proxy", bound_instance_dir, lambda: get_proxy_tool(bound_instance_dir, name, facade=tool_facade))
+            return _safe_facade_call("get_proxy", bound_instance_dir, lambda: get_proxy_tool(bound_instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
         @server.tool()
         def add_proxy(proxy_spec: dict[str, Any]) -> FacadeResult:
             """Add a structured proxy spec to proxies.yaml."""
-            return _safe_facade_call("add_proxy", bound_instance_dir, lambda: add_proxy_tool(bound_instance_dir, proxy_spec, facade=tool_facade))
+            return _safe_facade_call("add_proxy", bound_instance_dir, lambda: add_proxy_tool(bound_instance_dir, proxy_spec, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
         @server.tool()
         def update_proxy(name: str, patch_spec: dict[str, Any]) -> FacadeResult:
@@ -151,6 +161,8 @@ def register_tools(
                 "update_proxy",
                 bound_instance_dir,
                 lambda: update_proxy_tool(bound_instance_dir, name, patch_spec, facade=tool_facade),
+                audit_source="mcp",
+                audit_meta=audit_meta,
             )
 
         @server.tool()
@@ -160,17 +172,19 @@ def register_tools(
                 "remove_proxy",
                 bound_instance_dir,
                 lambda: remove_proxy_tool(bound_instance_dir, name, soft=soft, facade=tool_facade),
+                audit_source="mcp",
+                audit_meta=audit_meta,
             )
 
         @server.tool()
         def enable_proxy(name: str) -> FacadeResult:
             """Enable a proxy in proxies.yaml."""
-            return _safe_facade_call("enable_proxy", bound_instance_dir, lambda: enable_proxy_tool(bound_instance_dir, name, facade=tool_facade))
+            return _safe_facade_call("enable_proxy", bound_instance_dir, lambda: enable_proxy_tool(bound_instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
         @server.tool()
         def disable_proxy(name: str) -> FacadeResult:
             """Disable a proxy in proxies.yaml."""
-            return _safe_facade_call("disable_proxy", bound_instance_dir, lambda: disable_proxy_tool(bound_instance_dir, name, facade=tool_facade))
+            return _safe_facade_call("disable_proxy", bound_instance_dir, lambda: disable_proxy_tool(bound_instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
         @server.tool()
         def validate_proxy_set() -> FacadeResult:
@@ -179,6 +193,8 @@ def register_tools(
                 "validate_proxy_set",
                 bound_instance_dir,
                 lambda: validate_proxy_set_tool(bound_instance_dir, facade=tool_facade),
+                audit_source="mcp",
+                audit_meta=audit_meta,
             )
 
         @server.tool()
@@ -188,6 +204,8 @@ def register_tools(
                 "preview_proxy_changes",
                 bound_instance_dir,
                 lambda: preview_proxy_changes_tool(bound_instance_dir, facade=tool_facade),
+                audit_source="mcp",
+                audit_meta=audit_meta,
             )
 
         @server.tool()
@@ -197,23 +215,25 @@ def register_tools(
                 "apply_proxy_changes",
                 bound_instance_dir,
                 lambda: apply_proxy_changes_tool(bound_instance_dir, reload=reload, facade=tool_facade),
+                audit_source="mcp",
+                audit_meta=audit_meta,
             )
         return
 
     @server.tool()
     def list_proxies(instance_dir: str) -> FacadeResult:
         """List proxies from proxies.yaml for an instance directory."""
-        return _safe_facade_call("list_proxies", instance_dir, lambda: list_proxies_tool(instance_dir, facade=tool_facade))
+        return _safe_facade_call("list_proxies", instance_dir, lambda: list_proxies_tool(instance_dir, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
     @server.tool()
     def get_proxy(instance_dir: str, name: str) -> FacadeResult:
         """Get a single proxy by name from proxies.yaml."""
-        return _safe_facade_call("get_proxy", instance_dir, lambda: get_proxy_tool(instance_dir, name, facade=tool_facade))
+        return _safe_facade_call("get_proxy", instance_dir, lambda: get_proxy_tool(instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
     @server.tool()
     def add_proxy(instance_dir: str, proxy_spec: dict[str, Any]) -> FacadeResult:
         """Add a structured proxy spec to proxies.yaml."""
-        return _safe_facade_call("add_proxy", instance_dir, lambda: add_proxy_tool(instance_dir, proxy_spec, facade=tool_facade))
+        return _safe_facade_call("add_proxy", instance_dir, lambda: add_proxy_tool(instance_dir, proxy_spec, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
     @server.tool()
     def update_proxy(instance_dir: str, name: str, patch_spec: dict[str, Any]) -> FacadeResult:
@@ -222,6 +242,8 @@ def register_tools(
             "update_proxy",
             instance_dir,
             lambda: update_proxy_tool(instance_dir, name, patch_spec, facade=tool_facade),
+            audit_source="mcp",
+            audit_meta=audit_meta,
         )
 
     @server.tool()
@@ -231,22 +253,24 @@ def register_tools(
             "remove_proxy",
             instance_dir,
             lambda: remove_proxy_tool(instance_dir, name, soft=soft, facade=tool_facade),
+            audit_source="mcp",
+            audit_meta=audit_meta,
         )
 
     @server.tool()
     def enable_proxy(instance_dir: str, name: str) -> FacadeResult:
         """Enable a proxy in proxies.yaml."""
-        return _safe_facade_call("enable_proxy", instance_dir, lambda: enable_proxy_tool(instance_dir, name, facade=tool_facade))
+        return _safe_facade_call("enable_proxy", instance_dir, lambda: enable_proxy_tool(instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
     @server.tool()
     def disable_proxy(instance_dir: str, name: str) -> FacadeResult:
         """Disable a proxy in proxies.yaml."""
-        return _safe_facade_call("disable_proxy", instance_dir, lambda: disable_proxy_tool(instance_dir, name, facade=tool_facade))
+        return _safe_facade_call("disable_proxy", instance_dir, lambda: disable_proxy_tool(instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
     @server.tool()
     def validate_proxy_set(instance_dir: str) -> FacadeResult:
         """Validate the current proxy set for an instance."""
-        return _safe_facade_call("validate_proxy_set", instance_dir, lambda: validate_proxy_set_tool(instance_dir, facade=tool_facade))
+        return _safe_facade_call("validate_proxy_set", instance_dir, lambda: validate_proxy_set_tool(instance_dir, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
     @server.tool()
     def preview_proxy_changes(instance_dir: str) -> FacadeResult:
@@ -255,6 +279,8 @@ def register_tools(
             "preview_proxy_changes",
             instance_dir,
             lambda: preview_proxy_changes_tool(instance_dir, facade=tool_facade),
+            audit_source="mcp",
+            audit_meta=audit_meta,
         )
 
     @server.tool()
@@ -264,4 +290,6 @@ def register_tools(
             "apply_proxy_changes",
             instance_dir,
             lambda: apply_proxy_changes_tool(instance_dir, reload=reload, facade=tool_facade),
+            audit_source="mcp",
+            audit_meta=audit_meta,
         )

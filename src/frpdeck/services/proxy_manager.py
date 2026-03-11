@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -20,6 +21,7 @@ from frpdeck.domain.errors import (
 from frpdeck.domain.proxy import PROXY_ADAPTER, HttpProxyConfig, HttpsProxyConfig, ProxyConfig, ProxyFile, TcpProxyConfig, UdpProxyConfig
 from frpdeck.domain.proxy_management import ApplyReport, PreviewReport, ProxyMutationResult, ProxyUpdatePatch, ValidationReport
 from frpdeck.domain.state import ClientNodeConfig
+from frpdeck.services.audit import build_actor, new_event_id, read_text_snapshot, record_audit_event, revision_dir_path, write_proxy_revision, yaml_text, utc_timestamp
 from frpdeck.services.installer import sync_rendered_to_runtime
 from frpdeck.services.renderer import render_instance
 from frpdeck.services.runtime import run_command
@@ -40,23 +42,40 @@ class ProxyManager:
 
     def add_proxy(self, instance_dir: Path, proxy_spec: ProxyConfig | dict[str, object]) -> ProxyMutationResult:
         with instance_lock(self._lock_path(instance_dir)):
-            proxy_file = self._load_proxy_file(instance_dir)
+            instance = instance_dir.resolve()
+            proxy_file = self._load_proxy_file(instance)
+            before_state = self._proxy_audit_state(proxy_file, proxy_name=None)
+            before_text = self._proxy_snapshot_text(instance, proxy_file=proxy_file)
             proxy = self._validate_proxy_spec(proxy_spec)
             if any(existing.name == proxy.name for existing in proxy_file.proxies):
                 raise ProxyAlreadyExistsError(f"proxy already exists: {proxy.name}")
             proxy_file.proxies.append(proxy)
-            self._write_proxy_file(instance_dir, proxy_file)
-            return ProxyMutationResult(
+            self._write_proxy_file(instance, proxy_file)
+            result = ProxyMutationResult(
                 operation="add",
                 changed=True,
                 proxy=proxy,
                 message=f"proxy '{proxy.name}' written to proxies.yaml; apply required",
             )
+            self._attach_proxy_audit(
+                instance,
+                operation="proxy_add",
+                target={"proxy_name": proxy.name},
+                before=before_state,
+                after=self._proxy_audit_state(proxy_file, proxy_name=proxy.name),
+                before_yaml=before_text,
+                after_yaml=self._proxy_snapshot_text(instance),
+                result=result,
+            )
+            return result
 
     def update_proxy(self, instance_dir: Path, name: str, patch_spec: ProxyUpdatePatch | dict[str, object]) -> ProxyMutationResult:
         with instance_lock(self._lock_path(instance_dir)):
-            proxy_file = self._load_proxy_file(instance_dir)
+            instance = instance_dir.resolve()
+            proxy_file = self._load_proxy_file(instance)
             index, current = self._find_proxy_with_index(proxy_file, name)
+            before_state = self._proxy_audit_state(proxy_file, proxy_name=name)
+            before_text = self._proxy_snapshot_text(instance, proxy_file=proxy_file)
             try:
                 patch = patch_spec if isinstance(patch_spec, ProxyUpdatePatch) else ProxyUpdatePatch.model_validate(patch_spec)
             except ValidationError as exc:
@@ -68,30 +87,55 @@ class ProxyManager:
             ):
                 raise ProxyAlreadyExistsError(f"proxy already exists: {updated.name}")
             proxy_file.proxies[index] = updated
-            self._write_proxy_file(instance_dir, proxy_file)
-            return ProxyMutationResult(
+            self._write_proxy_file(instance, proxy_file)
+            result = ProxyMutationResult(
                 operation="update",
                 changed=True,
                 proxy=updated,
                 message=f"proxy '{name}' updated in proxies.yaml; apply required",
             )
+            self._attach_proxy_audit(
+                instance,
+                operation="proxy_update",
+                target={"proxy_name": name},
+                before=before_state,
+                after=self._proxy_audit_state(proxy_file, proxy_name=updated.name),
+                before_yaml=before_text,
+                after_yaml=self._proxy_snapshot_text(instance),
+                result=result,
+            )
+            return result
 
     def remove_proxy(self, instance_dir: Path, name: str, soft: bool = True) -> ProxyMutationResult:
         with instance_lock(self._lock_path(instance_dir)):
-            proxy_file = self._load_proxy_file(instance_dir)
+            instance = instance_dir.resolve()
+            proxy_file = self._load_proxy_file(instance)
             index, current = self._find_proxy_with_index(proxy_file, name)
+            before_state = self._proxy_audit_state(proxy_file, proxy_name=name)
+            before_text = self._proxy_snapshot_text(instance, proxy_file=proxy_file)
             if soft:
                 if current.enabled:
                     updated = current.model_copy(update={"enabled": False})
                     proxy_file.proxies[index] = updated
-                    self._write_proxy_file(instance_dir, proxy_file)
-                    return ProxyMutationResult(
+                    self._write_proxy_file(instance, proxy_file)
+                    result = ProxyMutationResult(
                         operation="remove",
                         changed=True,
                         proxy=updated,
                         removed_name=name,
                         message=f"proxy '{name}' disabled in proxies.yaml; apply required",
                     )
+                    self._attach_proxy_audit(
+                        instance,
+                        operation="proxy_remove",
+                        target={"proxy_name": name, "remove_mode": "soft"},
+                        before=before_state,
+                        after=self._proxy_audit_state(proxy_file, proxy_name=name),
+                        before_yaml=before_text,
+                        after_yaml=self._proxy_snapshot_text(instance),
+                        result=result,
+                    )
+                    return result
                 return ProxyMutationResult(
                     operation="remove",
                     changed=False,
@@ -100,13 +144,24 @@ class ProxyManager:
                     message=f"proxy '{name}' already disabled; apply may still be required",
                 )
             del proxy_file.proxies[index]
-            self._write_proxy_file(instance_dir, proxy_file)
-            return ProxyMutationResult(
+            self._write_proxy_file(instance, proxy_file)
+            result = ProxyMutationResult(
                 operation="remove",
                 changed=True,
                 removed_name=name,
                 message=f"proxy '{name}' deleted from proxies.yaml; apply required",
             )
+            self._attach_proxy_audit(
+                instance,
+                operation="proxy_remove",
+                target={"proxy_name": name, "remove_mode": "hard"},
+                before=before_state,
+                after=self._proxy_audit_state(proxy_file, proxy_name=name, fallback_proxy=None),
+                before_yaml=before_text,
+                after_yaml=self._proxy_snapshot_text(instance),
+                result=result,
+            )
+            return result
 
     def enable_proxy(self, instance_dir: Path, name: str) -> ProxyMutationResult:
         return self._set_enabled(instance_dir, name, True)
@@ -182,57 +237,72 @@ class ProxyManager:
             )
 
     def apply_proxy_changes(self, instance_dir: Path, reload: bool = True) -> ApplyReport:
-        lock_path = instance_dir / "state" / ".frpdeck.lock"
+        instance = instance_dir.resolve()
+        lock_path = instance / "state" / ".frpdeck.lock"
         with instance_lock(lock_path):
-            node = load_node_config(instance_dir)
-            if node.role != Role.CLIENT:
-                raise UnsupportedOperationError("structured proxy apply is only supported for client instances")
-            assert isinstance(node, ClientNodeConfig)
-
-            proxy_file = self._load_proxy_file(instance_dir)
-            validation = self.validate_proxy_set(instance_dir)
-            if validation.errors:
-                return ApplyReport(
-                    ok=False,
-                    step="validate",
-                    errors=validation.errors,
-                    warnings=validation.warnings,
-                    reload_requested=reload,
-                )
-
+            proxy_file = self._load_proxy_file(instance)
+            before = self._apply_audit_state(proxy_file, reload=reload)
             try:
-                summary = render_instance(instance_dir, node, proxy_file)
-            except Exception as exc:
-                raise ProxyApplyError(f"failed during render: {exc}") from exc
+                node = load_node_config(instance)
+                if node.role != Role.CLIENT:
+                    raise UnsupportedOperationError("structured proxy apply is only supported for client instances")
+                assert isinstance(node, ClientNodeConfig)
 
-            try:
-                sync_rendered_to_runtime(instance_dir, node)
-            except Exception as exc:
-                raise ProxyApplyError(f"failed during runtime sync: {exc}") from exc
+                validation = self.validate_proxy_set(instance)
+                if validation.errors:
+                    report = ApplyReport(
+                        ok=False,
+                        step="validate",
+                        errors=validation.errors,
+                        warnings=validation.warnings,
+                        reload_requested=reload,
+                    )
+                    self._attach_apply_audit(instance, before=before, report=report)
+                    return report
 
-            reload_output = None
-            reloaded = False
-            if reload:
                 try:
-                    reload_output = self._reload_client(instance_dir, node)
-                    reloaded = True
-                except (CommandExecutionError, ProxyApplyError) as exc:
-                    raise ProxyApplyError(f"failed during reload: {exc}") from exc
+                    summary = render_instance(instance, node, proxy_file)
+                except Exception as exc:
+                    raise ProxyApplyError(f"failed during render: {exc}") from exc
 
-            return ApplyReport(
-                ok=True,
-                step="reload" if reload else "render",
-                warnings=validation.warnings,
-                rendered_proxy_files=[path.name for path in summary.rendered_proxy_paths],
-                reload_requested=reload,
-                reloaded=reloaded,
-                reload_output=reload_output,
-            )
+                try:
+                    sync_rendered_to_runtime(instance, node)
+                except Exception as exc:
+                    raise ProxyApplyError(f"failed during runtime sync: {exc}") from exc
+
+                reload_output = None
+                reloaded = False
+                if reload:
+                    try:
+                        reload_output = self._reload_client(instance, node)
+                        reloaded = True
+                    except (CommandExecutionError, ProxyApplyError) as exc:
+                        raise ProxyApplyError(f"failed during reload: {exc}") from exc
+
+                report = ApplyReport(
+                    ok=True,
+                    step="reload" if reload else "render",
+                    warnings=validation.warnings,
+                    rendered_proxy_files=[path.name for path in summary.rendered_proxy_paths],
+                    reload_requested=reload,
+                    reloaded=reloaded,
+                    reload_output=reload_output,
+                )
+                self._attach_apply_audit(instance, before=before, report=report)
+                return report
+            except Exception as exc:
+                warning = self._record_apply_failure(instance, before=before, reload=reload, exc=exc)
+                if warning:
+                    raise type(exc)(f"{exc}; {warning}") from exc
+                raise
 
     def _set_enabled(self, instance_dir: Path, name: str, enabled: bool) -> ProxyMutationResult:
         with instance_lock(self._lock_path(instance_dir)):
-            proxy_file = self._load_proxy_file(instance_dir)
+            instance = instance_dir.resolve()
+            proxy_file = self._load_proxy_file(instance)
             index, current = self._find_proxy_with_index(proxy_file, name)
+            before_state = self._proxy_audit_state(proxy_file, proxy_name=name)
+            before_text = self._proxy_snapshot_text(instance, proxy_file=proxy_file)
             if current.enabled == enabled:
                 state = "enabled" if enabled else "disabled"
                 return ProxyMutationResult(
@@ -243,14 +313,25 @@ class ProxyManager:
                 )
             updated = current.model_copy(update={"enabled": enabled})
             proxy_file.proxies[index] = updated
-            self._write_proxy_file(instance_dir, proxy_file)
+            self._write_proxy_file(instance, proxy_file)
             state = "enabled" if enabled else "disabled"
-            return ProxyMutationResult(
+            result = ProxyMutationResult(
                 operation=state,
                 changed=True,
                 proxy=updated,
                 message=f"proxy '{name}' {state} in proxies.yaml; apply required",
             )
+            self._attach_proxy_audit(
+                instance,
+                operation="proxy_enable" if enabled else "proxy_disable",
+                target={"proxy_name": name, "enabled": enabled},
+                before=before_state,
+                after=self._proxy_audit_state(proxy_file, proxy_name=name),
+                before_yaml=before_text,
+                after_yaml=self._proxy_snapshot_text(instance),
+                result=result,
+            )
+            return result
 
     def _load_proxy_file(self, instance_dir: Path) -> ProxyFile:
         return load_proxy_file(instance_dir)
@@ -260,6 +341,176 @@ class ProxyManager:
 
     def _write_proxy_file(self, instance_dir: Path, proxy_file: ProxyFile) -> None:
         dump_yaml_model(proxy_file, instance_dir / "proxies.yaml")
+
+    def _proxy_snapshot_text(self, instance_dir: Path, *, proxy_file: ProxyFile | None = None) -> str:
+        fallback = proxy_file or ProxyFile()
+        return read_text_snapshot(instance_dir / "proxies.yaml", fallback=fallback) or yaml_text(fallback)
+
+    def _proxy_audit_state(self, proxy_file: ProxyFile, *, proxy_name: str | None = None, fallback_proxy: ProxyConfig | None = None) -> dict[str, Any]:
+        proxy_payload = None
+        if proxy_name is not None:
+            proxy_payload = next((self._serialize_proxy(proxy) for proxy in proxy_file.proxies if proxy.name == proxy_name), None)
+        if proxy_payload is None and fallback_proxy is not None:
+            proxy_payload = self._serialize_proxy(fallback_proxy)
+        return {
+            "proxy_count": len(proxy_file.proxies),
+            "proxy_names": [proxy.name for proxy in proxy_file.proxies],
+            "proxy": proxy_payload,
+        }
+
+    def _apply_audit_state(self, proxy_file: ProxyFile, *, reload: bool) -> dict[str, Any]:
+        enabled = [proxy.name for proxy in proxy_file.proxies if proxy.enabled]
+        return {
+            "proxy_count": len(proxy_file.proxies),
+            "enabled_proxies": enabled,
+            "reload_requested": reload,
+        }
+
+    def _serialize_proxy(self, proxy: ProxyConfig) -> dict[str, Any]:
+        return proxy.model_dump(mode="json", exclude_none=False)
+
+    def _audit_result_payload(
+        self,
+        *,
+        ok: bool,
+        error_code: str | None = None,
+        errors: list[str] | None = None,
+        warnings: list[str] | None = None,
+        **details: Any,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "ok": ok,
+            "error_code": error_code,
+            "errors": list(errors or []),
+            "warnings": list(warnings or []),
+        }
+        for key, value in details.items():
+            if value is not None:
+                payload[key] = value
+        return payload
+
+    def _audit_error_code(self, exc: Exception) -> str:
+        if isinstance(exc, ProxyNotFoundError):
+            return "proxy_not_found"
+        if isinstance(exc, ProxyAlreadyExistsError):
+            return "proxy_already_exists"
+        if isinstance(exc, ProxyConflictError):
+            return "proxy_conflict"
+        if isinstance(exc, ProxyApplyError):
+            return "apply_failed"
+        if isinstance(exc, UnsupportedOperationError):
+            return "unsupported_role"
+        if isinstance(exc, ConfigLoadError):
+            return "config_load_failed"
+        if isinstance(exc, CommandExecutionError):
+            return "command_execution_failed"
+        return "internal_error"
+
+    def _attach_proxy_audit(
+        self,
+        instance_dir: Path,
+        *,
+        operation: str,
+        target: dict[str, Any],
+        before: dict[str, Any],
+        after: dict[str, Any],
+        before_yaml: str,
+        after_yaml: str,
+        result: ProxyMutationResult,
+    ) -> None:
+        ts = utc_timestamp()
+        event_id = new_event_id()
+        actor = build_actor()
+        revision_dir = revision_dir_path(instance_dir, ts=ts, operation=operation, event_id=event_id)
+        audit_result = self._audit_result_payload(
+            ok=True,
+            warnings=result.warnings,
+            changed=result.changed,
+            apply_required=result.apply_required,
+            revision_dir=str(revision_dir),
+        )
+        warning = None
+        try:
+            write_proxy_revision(
+                instance_dir,
+                ts=ts,
+                event_id=event_id,
+                operation=operation,
+                actor=actor,
+                result=audit_result,
+                before_yaml=before_yaml,
+                after_yaml=after_yaml,
+            )
+        except Exception as exc:
+            warning = f"audit revision write failed: {exc}"
+            audit_result["warnings"] = list(audit_result["warnings"]) + [warning]
+        try:
+            record_audit_event(
+                instance_dir,
+                operation=operation,
+                target=target,
+                before=before,
+                after=after,
+                result=audit_result,
+                actor=actor,
+                ts=ts,
+                event_id=event_id,
+            )
+        except Exception as exc:
+            warning = f"audit log append failed: {exc}" if warning is None else f"{warning}; audit log append failed: {exc}"
+        if warning is not None:
+            result.warnings.append(warning)
+
+    def _attach_apply_audit(self, instance_dir: Path, *, before: dict[str, Any], report: ApplyReport) -> None:
+        warning = self._record_apply_audit(
+            instance_dir,
+            before=before,
+            after={
+                "step": report.step,
+                "rendered_files": list(report.rendered_proxy_files),
+                "reload_requested": report.reload_requested,
+                "reloaded": report.reloaded,
+            },
+            result=self._audit_result_payload(
+                ok=report.ok,
+                error_code=None if report.ok else ("validation_failed" if report.step == "validate" else "apply_failed"),
+                errors=report.errors,
+                warnings=report.warnings,
+                reload_requested=report.reload_requested,
+                reloaded=report.reloaded,
+                step=report.step,
+            ),
+        )
+        if warning is not None:
+            report.warnings.append(warning)
+
+    def _record_apply_failure(self, instance_dir: Path, *, before: dict[str, Any], reload: bool, exc: Exception) -> str | None:
+        return self._record_apply_audit(
+            instance_dir,
+            before=before,
+            after={"reload_requested": reload},
+            result=self._audit_result_payload(
+                ok=False,
+                error_code=self._audit_error_code(exc),
+                errors=[str(exc)],
+                warnings=[],
+                reload_requested=reload,
+            ),
+        )
+
+    def _record_apply_audit(self, instance_dir: Path, *, before: dict[str, Any], after: dict[str, Any], result: dict[str, Any]) -> str | None:
+        try:
+            record_audit_event(
+                instance_dir,
+                operation="proxy_apply",
+                target={"reload_requested": before.get("reload_requested")},
+                before=before,
+                after=after,
+                result=result,
+            )
+        except Exception as exc:
+            return f"audit log append failed: {exc}"
+        return None
 
     def _find_proxy(self, proxy_file: ProxyFile, name: str) -> ProxyConfig:
         _, proxy = self._find_proxy_with_index(proxy_file, name)

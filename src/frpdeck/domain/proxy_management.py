@@ -47,6 +47,7 @@ class ProxyMutationResult(BaseModel):
     proxy: ProxyConfig | None = None
     removed_name: str | None = None
     message: str
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ValidationReport(BaseModel):

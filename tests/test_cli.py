@@ -22,6 +22,11 @@ RUNNER = CliRunner()
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "instances"
 
 
+def _load_audit_records(instance_dir: Path) -> list[dict[str, object]]:
+    audit_path = instance_dir / "state" / "audit" / "audit.jsonl"
+    return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
 def _write_client_instance(instance_dir: Path) -> None:
     dump_yaml_model(
         ClientNodeConfig(
@@ -282,8 +287,12 @@ def test_mcp_install_stdio_wrapper_creates_executable_script(tmp_path: Path) -> 
     assert script_path.exists()
     assert script_path.stat().st_mode & 0o111
     content = script_path.read_text(encoding="utf-8")
-    assert f"--instance-dir {tmp_path.resolve()}" in content
-    assert f"exec {Path(sys.executable).resolve()} -m frpdeck.mcp.server" in content
+    assert f"INSTANCE_DIR={tmp_path.resolve()}" in content
+    assert '"$PYTHON_BIN" -m frpdeck.mcp.server --instance-dir "$INSTANCE_DIR"' in content
+    assert f"PYTHON_BIN={Path(sys.executable).resolve()}" in content
+    assert 'if [[ ! -x "$PYTHON_BIN" ]]; then' in content
+    assert 'frpdeck MCP wrapper error: failed to start the bound stdio MCP server.' in content
+    assert "This wrapper starts the frpdeck stdio MCP server for one bound instance." in content
     assert "source .venv/bin/activate" not in content
     assert "exec python -m frpdeck.mcp.server" not in content
     assert str(Path(sys.executable).resolve()) in content
@@ -293,6 +302,11 @@ def test_mcp_install_stdio_wrapper_creates_executable_script(tmp_path: Path) -> 
     assert "Claude Code example:" in result.stdout
     assert str(script_path.resolve()) in result.stdout
     assert "Please manually verify the SSH command first before enabling BatchMode yes." in result.stdout
+    assert "If this wrapper fails remotely, verify that the embedded Python interpreter is valid in that environment." in result.stdout
+    records = _load_audit_records(tmp_path)
+    assert records[0]["operation"] == "mcp_wrapper_install"
+    assert records[0]["target"]["wrapper_path"] == str(script_path.resolve())
+    assert records[0]["target"]["instance_dir"] == str(tmp_path.resolve())
 
 
 def test_mcp_install_stdio_wrapper_defaults_to_current_directory(monkeypatch, tmp_path: Path) -> None:
@@ -304,7 +318,7 @@ def test_mcp_install_stdio_wrapper_defaults_to_current_directory(monkeypatch, tm
     assert result.exit_code == 0, result.stdout
     assert script_path.exists()
     content = script_path.read_text(encoding="utf-8")
-    assert f"--instance-dir {tmp_path.resolve()}" in content
+    assert f"INSTANCE_DIR={tmp_path.resolve()}" in content
     assert f"Bound instance: {tmp_path.resolve()}" in result.stdout
 
 
@@ -312,6 +326,7 @@ def test_mcp_install_stdio_wrapper_allows_python_override(tmp_path: Path) -> Non
     fake_python = tmp_path / "bin" / "python-custom"
     fake_python.parent.mkdir(parents=True, exist_ok=True)
     fake_python.write_text("", encoding="utf-8")
+    fake_python.chmod(0o755)
 
     result = RUNNER.invoke(
         app,
@@ -321,8 +336,23 @@ def test_mcp_install_stdio_wrapper_allows_python_override(tmp_path: Path) -> Non
     script_path = tmp_path / WRAPPER_FILENAME
     assert result.exit_code == 0, result.stdout
     content = script_path.read_text(encoding="utf-8")
-    assert f"exec {fake_python.resolve()} -m frpdeck.mcp.server" in content
+    assert f"PYTHON_BIN={fake_python.resolve()}" in content
     assert f"Python: {fake_python.resolve()}" in result.stdout
+
+
+def test_mcp_install_stdio_wrapper_prefers_virtual_env_python(monkeypatch, tmp_path: Path) -> None:
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True, exist_ok=True)
+    venv_python.write_text("", encoding="utf-8")
+    venv_python.chmod(0o755)
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "venv"))
+
+    result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 0, result.stdout
+    content = (tmp_path / WRAPPER_FILENAME).read_text(encoding="utf-8")
+    assert f"PYTHON_BIN={venv_python.resolve()}" in content
+    assert f"Python: {venv_python.resolve()}" in result.stdout
 
 
 def test_mcp_uninstall_stdio_wrapper_removes_script(tmp_path: Path) -> None:
@@ -334,6 +364,9 @@ def test_mcp_uninstall_stdio_wrapper_removes_script(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stdout
     assert not script_path.exists()
     assert "Removed stdio wrapper" in result.stdout
+    records = _load_audit_records(tmp_path)
+    assert records[-1]["operation"] == "mcp_wrapper_uninstall"
+    assert records[-1]["after"]["exists"] is False
 
 
 def test_mcp_uninstall_stdio_wrapper_is_not_fatal_when_missing(tmp_path: Path) -> None:
@@ -353,10 +386,65 @@ def test_mcp_uninstall_stdio_wrapper_defaults_to_current_directory(monkeypatch, 
     assert not (tmp_path / WRAPPER_FILENAME).exists()
 
 
+def test_audit_recent_text_shows_latest_entries(tmp_path: Path) -> None:
+    RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+    RUNNER.invoke(app, ["mcp", "uninstall-stdio-wrapper", "--instance", str(tmp_path)])
+
+    result = RUNNER.invoke(app, ["audit", "recent", "--instance", str(tmp_path), "--limit", "1"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "mcp_wrapper_uninstall" in result.stdout
+    assert "source=cli" in result.stdout
+
+
+def test_audit_recent_defaults_to_current_directory(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    RUNNER.invoke(app, ["mcp", "install-stdio-wrapper"])
+
+    result = RUNNER.invoke(app, ["audit", "recent"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "mcp_wrapper_install" in result.stdout
+
+
+def test_audit_recent_json_returns_entries(tmp_path: Path) -> None:
+    RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+    RUNNER.invoke(app, ["mcp", "uninstall-stdio-wrapper", "--instance", str(tmp_path)])
+
+    result = RUNNER.invoke(app, ["audit", "recent", "--instance", str(tmp_path), "--limit", "2", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["command"] == "audit recent"
+    assert payload["data"]["count"] == 2
+    assert isinstance(payload["data"]["entries"], list)
+    assert payload["data"]["entries"][0]["operation"] == "mcp_wrapper_uninstall"
+
+
+def test_audit_recent_handles_missing_audit_file(tmp_path: Path) -> None:
+    text_result = RUNNER.invoke(app, ["audit", "recent", "--instance", str(tmp_path)])
+    json_result = RUNNER.invoke(app, ["audit", "recent", "--instance", str(tmp_path), "--json"])
+
+    assert text_result.exit_code == 0, text_result.stdout
+    assert "no audit log found" in text_result.stdout
+    payload = json.loads(json_result.stdout)
+    assert payload["ok"] is True
+    assert payload["data"]["count"] == 0
+    assert payload["data"]["entries"] == []
+
+
 def test_mcp_command_group_is_available() -> None:
     result = RUNNER.invoke(app, ["mcp", "--help"])
 
     assert result.exit_code == 0, result.stdout
     assert "install-stdio-wrapper" in result.stdout
     assert "uninstall-stdio-wrapper" in result.stdout
+
+
+def test_audit_command_group_is_available() -> None:
+    result = RUNNER.invoke(app, ["audit", "--help"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "recent" in result.stdout
 

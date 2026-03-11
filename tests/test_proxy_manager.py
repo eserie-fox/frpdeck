@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import pytest
 
@@ -13,6 +14,16 @@ from frpdeck.services.proxy_manager import ProxyManager
 from frpdeck.services.renderer import RenderSummary
 from frpdeck.storage.dump import dump_yaml_model
 from frpdeck.storage.load import load_proxy_file
+
+
+def _load_audit_records(instance_dir: Path) -> list[dict[str, object]]:
+    audit_path = instance_dir / "state" / "audit" / "audit.jsonl"
+    return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _revision_dirs(instance_dir: Path) -> list[Path]:
+    root = instance_dir / "state" / "revisions"
+    return sorted(root.iterdir()) if root.exists() else []
 
 
 def _write_client_instance(instance_dir: Path, proxies: list[object] | None = None) -> None:
@@ -52,6 +63,16 @@ def test_add_proxy_succeeds_and_rejects_duplicates(tmp_path: Path) -> None:
     assert result.proxy is not None
     assert result.proxy.name == "ssh"
     assert load_proxy_file(tmp_path).proxies[0].name == "ssh"
+    records = _load_audit_records(tmp_path)
+    assert len(records) == 1
+    assert records[0]["operation"] == "proxy_add"
+    assert records[0]["actor"]["source"] == "cli"
+    assert records[0]["target"]["proxy_name"] == "ssh"
+    revisions = _revision_dirs(tmp_path)
+    assert len(revisions) == 1
+    assert (revisions[0] / "proxies.before.yaml").exists()
+    assert (revisions[0] / "proxies.after.yaml").exists()
+    assert (revisions[0] / "meta.json").exists()
 
     with pytest.raises(ProxyAlreadyExistsError):
         manager.add_proxy(tmp_path, TcpProxyConfig(name="ssh", local_port=23, remote_port=6001))
@@ -66,6 +87,10 @@ def test_update_proxy_applies_patch_and_revalidates_model(tmp_path: Path) -> Non
     assert result.proxy is not None
     assert result.proxy.local_port == 2222
     assert result.proxy.remote_port == 7000
+    record = _load_audit_records(tmp_path)[0]
+    assert record["operation"] == "proxy_update"
+    assert record["before"]["proxy"]["local_port"] == 22
+    assert record["after"]["proxy"]["local_port"] == 2222
 
     with pytest.raises(ProxyConflictError):
         manager.update_proxy(tmp_path, "ssh", {"remote_port": 70000})
@@ -80,6 +105,10 @@ def test_enable_and_disable_proxy_flip_enabled_state(tmp_path: Path) -> None:
 
     manager.enable_proxy(tmp_path, "ssh")
     assert load_proxy_file(tmp_path).proxies[0].enabled is True
+    records = _load_audit_records(tmp_path)
+    assert [record["operation"] for record in records] == ["proxy_disable", "proxy_enable"]
+    assert records[0]["after"]["proxy"]["enabled"] is False
+    assert records[1]["after"]["proxy"]["enabled"] is True
 
 
 def test_remove_proxy_soft_disables_and_hard_deletes(tmp_path: Path) -> None:
@@ -99,6 +128,11 @@ def test_remove_proxy_soft_disables_and_hard_deletes(tmp_path: Path) -> None:
     hard_result = manager.remove_proxy(tmp_path, "dns", soft=False)
     assert hard_result.removed_name == "dns"
     assert [proxy.name for proxy in load_proxy_file(tmp_path).proxies] == ["ssh"]
+    records = _load_audit_records(tmp_path)
+    assert records[0]["operation"] == "proxy_remove"
+    assert records[0]["target"]["remove_mode"] == "soft"
+    assert records[1]["operation"] == "proxy_remove"
+    assert records[1]["target"]["remove_mode"] == "hard"
 
 
 def test_validate_proxy_set_reports_remote_port_conflicts(tmp_path: Path) -> None:
@@ -176,6 +210,12 @@ def test_apply_proxy_changes_runs_render_sync_and_reload(monkeypatch: pytest.Mon
     assert report.rendered_proxy_files == ["ssh.toml"]
     assert report.reloaded is True
     assert calls == ["render", "sync", "reload"]
+    records = _load_audit_records(tmp_path)
+    assert records[0]["operation"] == "proxy_apply"
+    assert records[0]["result"]["ok"] is True
+    assert records[0]["result"]["reload_requested"] is True
+    assert records[0]["result"]["reloaded"] is True
+    assert _revision_dirs(tmp_path) == []
 
 
 def test_apply_proxy_changes_rejects_server_instance(tmp_path: Path) -> None:
@@ -183,3 +223,15 @@ def test_apply_proxy_changes_rejects_server_instance(tmp_path: Path) -> None:
 
     with pytest.raises(UnsupportedOperationError):
         ProxyManager().apply_proxy_changes(tmp_path)
+
+
+def test_proxy_write_surfaces_audit_failure_as_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    monkeypatch.setattr("frpdeck.services.proxy_manager.record_audit_event", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")))
+
+    result = ProxyManager().add_proxy(tmp_path, TcpProxyConfig(name="ssh", local_port=22, remote_port=6000))
+
+    assert result.changed is True
+    assert result.warnings
+    assert "audit log append failed" in result.warnings[0]
