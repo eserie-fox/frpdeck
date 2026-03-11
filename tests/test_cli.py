@@ -1,11 +1,13 @@
 from pathlib import Path
 import json
 import shutil
+import sys
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
 from frpdeck.cli import app
+from frpdeck.commands.mcp import WRAPPER_FILENAME
 from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig
 from frpdeck.domain.errors import CommandExecutionError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
@@ -270,4 +272,44 @@ def test_status_json_gracefully_handles_missing_systemctl(monkeypatch, tmp_path:
     assert payload["command"] == "status"
     assert payload["data"]["schema_version"] == "frpdeck.status.v1"
     assert payload["warnings"]
+
+
+def test_mcp_install_stdio_wrapper_creates_executable_script(tmp_path: Path) -> None:
+    result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+
+    script_path = tmp_path / WRAPPER_FILENAME
+    assert result.exit_code == 0, result.stdout
+    assert script_path.exists()
+    assert script_path.stat().st_mode & 0o111
+    content = script_path.read_text(encoding="utf-8")
+    assert f"--instance-dir {tmp_path.resolve()}" in content
+    assert str(Path(sys.executable).resolve()) in content
+    assert "Claude Code example:" in result.stdout
+    assert str(script_path.resolve()) in result.stdout
+
+
+def test_mcp_uninstall_stdio_wrapper_removes_script(tmp_path: Path) -> None:
+    script_path = tmp_path / WRAPPER_FILENAME
+    RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+
+    result = RUNNER.invoke(app, ["mcp", "uninstall-stdio-wrapper", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 0, result.stdout
+    assert not script_path.exists()
+    assert "Removed stdio wrapper" in result.stdout
+
+
+def test_mcp_uninstall_stdio_wrapper_is_not_fatal_when_missing(tmp_path: Path) -> None:
+    result = RUNNER.invoke(app, ["mcp", "uninstall-stdio-wrapper", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 0, result.stdout
+    assert "already absent" in result.stdout
+
+
+def test_mcp_command_group_is_available() -> None:
+    result = RUNNER.invoke(app, ["mcp", "--help"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "install-stdio-wrapper" in result.stdout
+    assert "uninstall-stdio-wrapper" in result.stdout
 
