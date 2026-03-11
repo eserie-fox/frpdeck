@@ -31,3 +31,19 @@ class ReleaseNotFoundError(FrpdeckError):
 
 class UnsupportedOperationError(FrpdeckError):
     """Raised when a command is not supported for the requested role."""
+
+
+class ProxyNotFoundError(FrpdeckError):
+    """Raised when a proxy does not exist."""
+
+
+class ProxyAlreadyExistsError(FrpdeckError):
+    """Raised when creating a proxy with a duplicate name."""
+
+
+class ProxyConflictError(FrpdeckError):
+    """Raised when proxy state conflicts with existing configuration."""
+
+
+class ProxyApplyError(FrpdeckError):
+    """Raised when proxy changes cannot be applied."""

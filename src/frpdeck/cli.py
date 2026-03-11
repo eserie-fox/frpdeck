@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from frpdeck.commands import apply, check_update, doctor, init, reload, render, restart, status, upgrade, validate
+from frpdeck.commands import apply, check_update, doctor, init, proxy, reload, render, restart, status, upgrade, validate
 from frpdeck.version import __version__
 
 
@@ -19,7 +19,7 @@ def callback(version: bool = typer.Option(False, "--version", help="Show version
         raise typer.Exit()
 
 
-for module in [init, render, validate, apply, reload, restart, status, check_update, upgrade, doctor]:
+for module in [init, render, validate, apply, reload, restart, status, check_update, upgrade, doctor, proxy]:
     module.register(app)
 
 

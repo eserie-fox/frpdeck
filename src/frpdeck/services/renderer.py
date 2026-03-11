@@ -34,9 +34,15 @@ class RenderSummary:
     systemd_unit_path: Path
 
 
-def render_instance(instance_dir: Path, node: NodeBase, proxy_file: ProxyFile | None = None) -> RenderSummary:
+def render_instance(
+    instance_dir: Path,
+    node: NodeBase,
+    proxy_file: ProxyFile | None = None,
+    *,
+    output_root: Path | None = None,
+) -> RenderSummary:
     """Render instance templates into the local rendered directory."""
-    rendered_root = instance_dir / "rendered"
+    rendered_root = output_root or (instance_dir / "rendered")
     proxies_root = rendered_root / "proxies.d"
     systemd_root = rendered_root / "systemd"
     rendered_root.mkdir(parents=True, exist_ok=True)
