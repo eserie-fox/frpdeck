@@ -14,10 +14,12 @@ The existing [frp](./frp) directory remains in the repository only as reference 
 - `restart` and `status` operate on the configured systemd service.
 - `check-update` and `upgrade` support GitHub latest releases and offline archives.
 - `doctor` checks Linux/systemd availability, instance files, and basic write permissions.
+- `python -m frpdeck.mcp.server` starts a local stdio MCP server that exposes proxy-management tools and read-only status resources.
 
 ## Not implemented yet
 
-- MCP service logic
+- Remote HTTP transport for MCP
+- Authentication or authorization for remote MCP access
 - Web dashboard or visualization service
 - Remote centralized control
 - Interactive TOML editing
@@ -37,32 +39,40 @@ Running `frpdeck` with no arguments now shows the built-in command help, includi
 Initialize a client instance:
 
 ```bash
-frpdeck init client grape-networking
+frpdeck init client my-client
 ```
 
-Initialize a server instance:
+Edit the generated configuration and secret material:
 
 ```bash
-frpdeck init server edge-svr
+${EDITOR:-vi} ./my-client/node.yaml
+${EDITOR:-vi} ./my-client/proxies.yaml
+mkdir -p ./my-client/secrets
+printf 'replace-me\n' > ./my-client/secrets/token.txt
+```
+
+Validate the source configuration:
+
+```bash
+frpdeck validate --instance ./my-client
 ```
 
 Render generated files:
 
 ```bash
-frpdeck render --instance ./examples/client-node
-frpdeck render --instance ./examples/server-node
-```
-
-Validate source configuration:
-
-```bash
-frpdeck validate --instance ./examples/client-node
+frpdeck render --instance ./my-client
 ```
 
 Apply an instance to the configured runtime paths:
 
 ```bash
 sudo frpdeck apply --instance ./my-client
+```
+
+Inspect runtime state:
+
+```bash
+frpdeck status --instance ./my-client
 ```
 
 Apply emits stage-by-stage progress in text mode so it is clear when validation, rendering, runtime sync, systemd install, and restart are happening.
@@ -79,22 +89,37 @@ Delete the instance directory as well:
 frpdeck uninstall --instance ./my-client --purge
 ```
 
-## Example client workflow
+## Client workflow
 
-1. Copy `examples/client-node` to a working directory.
+1. Run `frpdeck init client your-client`.
 2. Replace `PLEASE_FILL_SERVER_ADDR` and domain placeholders in `node.yaml` and `proxies.yaml`.
 3. Create `secrets/token.txt` with the real token.
 4. Run `frpdeck validate --instance ./your-client`.
 5. Run `frpdeck render --instance ./your-client`.
 6. Run `sudo frpdeck apply --instance ./your-client`.
+7. Run `frpdeck status --instance ./your-client`.
 
-## Example server workflow
+## Server workflow
 
-1. Copy `examples/server-node` to a working directory.
+1. Run `frpdeck init server your-server`.
 2. Replace `PLEASE_FILL_DOMAIN` and create `secrets/token.txt`.
 3. Run `frpdeck validate --instance ./your-server`.
 4. Run `frpdeck render --instance ./your-server`.
 5. Run `sudo frpdeck apply --instance ./your-server`.
+
+## MCP
+
+Start the local stdio MCP server with:
+
+```bash
+python -m frpdeck.mcp.server
+```
+
+The current MCP surface is a thin local wrapper over frpdeck tools and status resources. It does not currently provide HTTP transport, remote auth, or a web UI.
+
+## Test fixtures
+
+Repository fixtures now live under `tests/fixtures/instances/`. They exist for tests and development reference only. Daily usage should start from `frpdeck init ...`, not by editing fixture directories directly.
 
 ## Notes on paths
 

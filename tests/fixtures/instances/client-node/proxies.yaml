@@ -1,6 +1,6 @@
 proxies:
   - enabled: true
-    name: grape_web_http
+    name: example_web_http
     type: http
     description: example http proxy
     local_ip: 127.0.0.1
@@ -15,7 +15,7 @@ proxies:
       use_encryption: false
       use_compression: true
   - enabled: true
-    name: grape_ssh_tcp
+    name: example_ssh_tcp
     type: tcp
     description: example ssh proxy
     local_ip: 127.0.0.1

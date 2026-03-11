@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import shutil
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
@@ -16,6 +17,7 @@ from frpdeck.storage.dump import dump_yaml_model
 
 
 RUNNER = CliRunner()
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "instances"
 
 
 def _write_client_instance(instance_dir: Path) -> None:
@@ -50,6 +52,12 @@ def _write_server_instance(instance_dir: Path) -> None:
     dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
 
 
+def _copy_fixture_instance(name: str, destination: Path) -> Path:
+    instance_dir = destination / name
+    shutil.copytree(FIXTURE_ROOT / name, instance_dir)
+    return instance_dir
+
+
 def test_init_creates_base_files(tmp_path: Path) -> None:
     result = RUNNER.invoke(app, ["init", "client", "demo-node", "--directory", str(tmp_path)])
 
@@ -59,19 +67,21 @@ def test_init_creates_base_files(tmp_path: Path) -> None:
     assert (tmp_path / "demo-node" / "secrets" / "token.txt.example").exists()
 
 
-def test_render_succeeds_on_example_instance() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    instance = repo_root / "examples" / "client-node"
+def test_render_succeeds_on_example_instance(tmp_path: Path) -> None:
+    instance = _copy_fixture_instance("client-node", tmp_path)
+
+    assert not (instance / "rendered" / "frpc.toml").exists()
 
     result = RUNNER.invoke(app, ["render", "--instance", str(instance)])
 
     assert result.exit_code == 0, result.stdout
     assert (instance / "rendered" / "frpc.toml").exists()
+    assert (instance / "rendered" / "proxies.d" / "example_web_http.toml").exists()
+    assert (instance / "rendered" / "proxies.d" / "example_ssh_tcp.toml").exists()
 
 
 def test_validate_reports_placeholder_errors() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    instance = repo_root / "examples" / "client-node"
+    instance = FIXTURE_ROOT / "client-node"
 
     result = RUNNER.invoke(app, ["validate", "--instance", str(instance)])
 
@@ -123,18 +133,16 @@ def test_apply_shows_human_readable_step_output(monkeypatch, tmp_path: Path) -> 
 
 
 def test_proxy_list_succeeds_on_example_instance() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    instance = repo_root / "examples" / "client-node"
+    instance = FIXTURE_ROOT / "client-node"
 
     result = RUNNER.invoke(app, ["proxy", "list", "--instance", str(instance)])
 
     assert result.exit_code == 0, result.stdout
-    assert "grape_web_http" in result.stdout
+    assert "example_web_http" in result.stdout
 
 
 def test_proxy_list_json_returns_envelope() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    instance = repo_root / "examples" / "client-node"
+    instance = FIXTURE_ROOT / "client-node"
 
     result = RUNNER.invoke(app, ["proxy", "list", "--instance", str(instance), "--json"])
 
@@ -148,22 +156,20 @@ def test_proxy_list_json_returns_envelope() -> None:
 
 
 def test_proxy_show_json_returns_single_proxy() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    instance = repo_root / "examples" / "client-node"
+    instance = FIXTURE_ROOT / "client-node"
 
-    result = RUNNER.invoke(app, ["proxy", "show", "--instance", str(instance), "grape_ssh_tcp", "--json"])
+    result = RUNNER.invoke(app, ["proxy", "show", "--instance", str(instance), "example_ssh_tcp", "--json"])
 
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert payload["command"] == "proxy show"
-    assert payload["data"]["proxy"]["name"] == "grape_ssh_tcp"
+    assert payload["data"]["proxy"]["name"] == "example_ssh_tcp"
     assert payload["data"]["proxy"]["type"] == "tcp"
 
 
 def test_proxy_validate_json_error_returns_pure_json() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    instance = repo_root / "examples" / "client-node"
+    instance = FIXTURE_ROOT / "client-node"
 
     result = RUNNER.invoke(app, ["proxy", "validate", "--instance", str(instance), "--json"])
 
@@ -200,8 +206,7 @@ def test_proxy_preview_json_returns_machine_readable_summary(tmp_path: Path) -> 
 
 
 def test_proxy_apply_json_returns_envelope_with_mocked_manager(monkeypatch) -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    instance = repo_root / "examples" / "client-node"
+    instance = FIXTURE_ROOT / "client-node"
 
     class FakeProxy:
         def __init__(self, name: str, enabled: bool) -> None:
