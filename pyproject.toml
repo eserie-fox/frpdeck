@@ -1,14 +1,33 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "frpdeck"
-version = "0.1.0"
-description = "Structured FRP deployment and maintenance CLI"
+version = "1.0.0"
+description = "Lightweight FRP deployment and maintenance CLI with structured proxy management, audit logging, and MCP support for LLM-assisted operations."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
-authors = [{ name = "GitHub Copilot" }]
+authors = [
+  { name = "Hanwen Zheng", email = "eserie.fox@outlook.com" }
+]
+keywords = ["frp", "proxy", "deployment", "ops", "mcp", "llm"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: System Administrators",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Internet :: Proxy Servers",
+  "Topic :: System :: Systems Administration",
+  "Topic :: System :: Networking",
+]
 dependencies = [
   "jinja2>=3.1,<4",
   "mcp>=1.26,<2",
@@ -16,6 +35,11 @@ dependencies = [
   "PyYAML>=6.0,<7",
   "typer>=0.12,<1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/eserie-fox/frpdeck"
+Repository = "https://github.com/eserie-fox/frpdeck"
+Issues = "https://github.com/eserie-fox/frpdeck/issues"
 
 [project.optional-dependencies]
 dev = [

@@ -1,8 +1,36 @@
 # frpdeck
 
-`frpdeck` is a Python 3.11+ CLI for managing FRP client and server deployments from structured YAML source files. This first stage focuses on deployment and maintenance workflows: initialize instance directories, validate configs, render FRP and systemd files, apply them locally, inspect status, and upgrade binaries.
+`frpdeck` is a lightweight Python 3.11+ CLI for managing FRP instances from structured source files. It focuses on practical single-host operations: initialize instance directories, validate configuration, render runtime files, apply changes locally, inspect state, and maintain structured proxy definitions without introducing a larger control plane.
 
-## Current capabilities
+It is also MCP-friendly. `frpdeck` includes a local stdio MCP thin wrapper so an LLM can assist with structured proxy maintenance against one bound instance directory at a time.
+
+## Highlights
+
+- Lightweight FRP deployment and maintenance workflows for client and server instances.
+- Structured proxy management backed by `proxies.yaml`, with preview and apply support.
+- Stable JSON outputs for automation and scripting.
+- Append-only audit logging and revision snapshots for write operations.
+- Local stdio MCP support for LLM-assisted proxy maintenance.
+
+## Installation
+
+Install from source:
+
+```bash
+python3.11 -m venv .venv
+. .venv/bin/activate
+python -m pip install .
+```
+
+For development:
+
+```bash
+python3.11 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e '.[dev]'
+```
+
+## Features
 
 - `init` creates a new client or server instance directory.
 - `render` generates FRP TOML, proxy includes, and systemd units under `rendered/`.
@@ -14,7 +42,11 @@
 - `doctor` checks Linux/systemd availability, instance files, and basic write permissions.
 - `python -m frpdeck.mcp.server` starts a local stdio MCP server that exposes proxy-management tools and read-only status resources.
 
-## Not implemented yet
+## Current scope
+
+`frpdeck` is a focused operations tool, not a full FRP control platform. It currently centers on structured instance management, proxy maintenance, local apply workflows, auditing, and MCP-assisted maintenance. HTTP control planes, remote auth layers, and web dashboards are intentionally out of scope for now.
+
+## Non-goals
 
 - Remote HTTP transport for MCP
 - Authentication or authorization for remote MCP access
@@ -22,15 +54,7 @@
 - Remote centralized control
 - Interactive TOML editing
 
-## Development setup
-
-```bash
-python3.11 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e '.[dev]'
-```
-
-## Basic usage
+## Quick start
 
 Running `frpdeck` with no arguments now shows the built-in command help, including common entry points such as `init`, `apply`, `proxy`, `status`, and `python -m frpdeck.mcp.server`.
 
@@ -87,7 +111,9 @@ Delete the instance directory as well:
 frpdeck uninstall --instance ./my-client --purge
 ```
 
-## Client workflow
+## Typical workflows
+
+### Client instance
 
 1. Run `frpdeck init client your-client`.
 2. Replace `PLEASE_FILL_SERVER_ADDR` and domain placeholders in `node.yaml` and `proxies.yaml`.
@@ -97,7 +123,7 @@ frpdeck uninstall --instance ./my-client --purge
 6. Run `sudo frpdeck apply --instance ./your-client`.
 7. Run `frpdeck status --instance ./your-client`.
 
-## Server workflow
+### Server instance
 
 1. Run `frpdeck init server your-server`.
 2. Replace `PLEASE_FILL_DOMAIN` and create `secrets/token.txt`.
@@ -107,9 +133,9 @@ frpdeck uninstall --instance ./my-client --purge
 
 ## MCP
 
-The current MCP surface is a thin local stdio wrapper over frpdeck tools and status resources. It binds to one frpdeck instance directory at a time and is best used through a generated wrapper script. It does not provide HTTP transport, remote auth, or a web UI.
+`frpdeck` ships with a local stdio MCP thin wrapper over structured proxy tools and read-only status resources. It is designed to bind to one instance directory at a time and is best used through a generated wrapper script.
 
-Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point Claude Code at that script. Prefer the generated wrapper over writing your own script unless you have a specific reason to customize it. The wrapper binds to your chosen instance directory and embeds the Python interpreter that is running `frpdeck` when the script is created.
+Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point your MCP client at that script. Prefer the generated wrapper over writing your own unless you have a specific reason to customize startup behavior. The wrapper binds to your chosen instance directory and embeds the Python interpreter detected when the script is created.
 
 In practice, wrapper scripts are most commonly generated for client instances, because proxy configuration is usually managed on the client side. That is a usage pattern rather than a hard restriction: the MCP wrapper is tied to an instance directory, not to a separate client-only mode in the documentation.
 
@@ -154,8 +180,19 @@ Once the manual SSH command works, add the MCP entry in Claude Code:
 
 ```bash
 claude mcp add --scope user --transport stdio frpdeck -- \
-	ssh your-ssh-host /path/to/your-instance/start-mcp-stdio.sh
+  ssh your-ssh-host /path/to/your-instance/start-mcp-stdio.sh
 ```
+
+Current MCP scope is intentionally small:
+
+- Local stdio MCP server only.
+- No HTTP transport.
+- No remote auth layer.
+- No web UI.
+
+## Audit and safety notes
+
+Write operations append audit records under `state/audit/audit.jsonl`, and proxy mutations also create revision snapshots under `state/revisions/`. This is intended to make changes traceable and manually recoverable without turning the tool into a full control plane.
 
 ### SSH and BatchMode
 
@@ -171,11 +208,11 @@ Example SSH config shape:
 
 ```sshconfig
 Host your-frp-host
-	HostName <host-or-ip>
-	User <user>
-	IdentityFile ~/.ssh/id_ed25519
-	# Add BatchMode yes only after manual SSH testing succeeds
-	# BatchMode yes
+    HostName <host-or-ip>
+    User <user>
+    IdentityFile ~/.ssh/id_ed25519
+    # Add BatchMode yes only after manual SSH testing succeeds
+    # BatchMode yes
 ```
 
 ## Test fixtures
