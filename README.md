@@ -32,6 +32,8 @@ python -m pip install -e '.[dev]'
 
 ## Basic usage
 
+Running `frpdeck` with no arguments now shows the built-in command help, including common entry points such as `init`, `apply`, `proxy`, `status`, and `python -m frpdeck.mcp.server`.
+
 Initialize a client instance:
 
 ```bash
@@ -61,6 +63,20 @@ Apply an instance to the configured runtime paths:
 
 ```bash
 sudo frpdeck apply --instance ./my-client
+```
+
+Apply emits stage-by-stage progress in text mode so it is clear when validation, rendering, runtime sync, systemd install, and restart are happening.
+
+Uninstall installed artifacts while keeping source configuration:
+
+```bash
+frpdeck uninstall --instance ./my-client
+```
+
+Delete the instance directory as well:
+
+```bash
+frpdeck uninstall --instance ./my-client --purge
 ```
 
 ## Example client workflow

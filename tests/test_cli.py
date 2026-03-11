@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -83,6 +84,42 @@ def test_version_option_returns_success() -> None:
 
     assert result.exit_code == 0
     assert result.stdout.strip()
+
+
+def test_root_command_without_args_shows_help() -> None:
+    result = RUNNER.invoke(app, [])
+
+    assert result.exit_code == 0
+    assert "Usage:" in result.stdout
+    assert "apply" in result.stdout
+    assert "status" in result.stdout
+
+
+def test_apply_shows_human_readable_step_output(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    monkeypatch.setattr("frpdeck.commands.apply.validate_instance", lambda instance_dir, node, proxies: [])
+    monkeypatch.setattr(
+        "frpdeck.commands.apply.render_instance",
+        lambda instance_dir, node, proxies: SimpleNamespace(systemd_unit_path=instance_dir / "rendered" / "demo.service"),
+    )
+    monkeypatch.setattr("frpdeck.commands.apply.sync_rendered_to_runtime", lambda instance_dir, node: instance_dir / "runtime" / "config" / "frpc.toml")
+    monkeypatch.setattr("frpdeck.commands.apply.install_unit", lambda rendered_unit, target_unit: None)
+    monkeypatch.setattr("frpdeck.commands.apply.daemon_reload", lambda: None)
+    monkeypatch.setattr("frpdeck.commands.apply.enable_service", lambda service_name: None)
+    monkeypatch.setattr("frpdeck.commands.apply.restart_service", lambda service_name: None)
+
+    result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path), "--no-install-if-missing"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "[1/6] Validating instance configuration..." in result.stdout
+    assert "[2/6] Rendering configuration files..." in result.stdout
+    assert "[3/6] Ensuring FRP binary is installed..." in result.stdout
+    assert "Binary installation skipped by --no-install-if-missing." in result.stdout
+    assert "[4/6] Syncing rendered files into runtime directories..." in result.stdout
+    assert "[5/6] Installing/updating systemd unit..." in result.stdout
+    assert "[6/6] Reloading systemd and restarting service..." in result.stdout
+    assert "Apply completed successfully." in result.stdout
 
 
 def test_proxy_list_succeeds_on_example_instance() -> None:
