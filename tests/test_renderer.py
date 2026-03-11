@@ -32,6 +32,25 @@ def test_client_render_outputs_main_and_proxy_files(tmp_path: Path) -> None:
     assert not (tmp_path / "rendered" / "proxies.d" / "dns.toml").exists()
 
 
+def test_client_render_places_includes_before_first_table(tmp_path: Path) -> None:
+    node = ClientNodeConfig(
+        instance_name="client-demo",
+        service=ServiceConfig(service_name="client-demo-frpc"),
+        client=ClientCommonConfig(
+            server_addr="example.com",
+            server_port=7000,
+            auth=AuthConfig(token="secret"),
+            includes_enabled=True,
+        ),
+    )
+
+    summary = render_instance(tmp_path, node, ProxyFile(proxies=[TcpProxyConfig(name="ssh", local_port=22, remote_port=6000)]))
+    main_config = summary.main_config_path.read_text(encoding="utf-8")
+
+    assert 'includes = [' in main_config
+    assert main_config.index('includes = [') < main_config.index('[transport]')
+
+
 def test_server_render_outputs_frps_toml(tmp_path: Path) -> None:
     node = ServerNodeConfig(
         instance_name="server-demo",
