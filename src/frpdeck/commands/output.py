@@ -131,4 +131,5 @@ def serialize_mutation_result(result: ProxyMutationResult) -> dict[str, Any]:
         "removed_name": result.removed_name,
         "message": result.message,
         "proxy": serialize_proxy(result.proxy) if result.proxy is not None else None,
+        "warnings": list(result.warnings),
     }

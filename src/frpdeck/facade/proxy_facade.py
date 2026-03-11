@@ -52,7 +52,7 @@ class ProxyFacade:
         instance = instance_dir.resolve()
         try:
             result = self._manager.add_proxy(instance, proxy_spec)
-            return self._success(operation, instance, self._serialize_mutation_result(result))
+            return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
 
@@ -61,7 +61,7 @@ class ProxyFacade:
         instance = instance_dir.resolve()
         try:
             result = self._manager.update_proxy(instance, name, patch_spec)
-            return self._success(operation, instance, self._serialize_mutation_result(result))
+            return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
 
@@ -70,7 +70,7 @@ class ProxyFacade:
         instance = instance_dir.resolve()
         try:
             result = self._manager.remove_proxy(instance, name, soft=soft)
-            return self._success(operation, instance, self._serialize_mutation_result(result))
+            return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
 
@@ -79,7 +79,7 @@ class ProxyFacade:
         instance = instance_dir.resolve()
         try:
             result = self._manager.enable_proxy(instance, name)
-            return self._success(operation, instance, self._serialize_mutation_result(result))
+            return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
 
@@ -88,7 +88,7 @@ class ProxyFacade:
         instance = instance_dir.resolve()
         try:
             result = self._manager.disable_proxy(instance, name)
-            return self._success(operation, instance, self._serialize_mutation_result(result))
+            return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
 

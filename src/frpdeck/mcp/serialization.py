@@ -10,6 +10,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from frpdeck.domain.facade_models import FacadeResult
+
+
+MCP_SCHEMA_VERSION = "frpdeck.mcp.v1"
+
 
 def to_jsonable(value: Any) -> Any:
     """Convert supported Python objects into JSON-serializable data."""
@@ -35,6 +40,37 @@ def dump_json(value: Any) -> str:
     return json.dumps(to_jsonable(value), ensure_ascii=True, sort_keys=True)
 
 
-def resolve_instance_dir(instance_dir: str) -> Path:
+def resolve_instance_dir(instance_dir: str | Path) -> Path:
     """Resolve an instance directory using the existing local-path rules."""
     return Path(instance_dir).expanduser().resolve()
+
+
+def error_message(exc: Exception) -> str:
+    """Return a stable non-empty error message."""
+    message = str(exc).strip()
+    if message:
+        return message
+    return f"{type(exc).__name__} raised without a message"
+
+
+def internal_error_result(operation: str, instance_dir: str | Path, exc: Exception) -> FacadeResult:
+    """Build a stable MCP-facing error envelope for unexpected failures."""
+    return FacadeResult(
+        ok=False,
+        operation=operation,
+        instance=str(resolve_instance_dir(instance_dir)),
+        error_code="internal_error",
+        errors=[error_message(exc)],
+    )
+
+
+def resource_error_payload(resource_name: str, instance_dir: str | Path | None, exc: Exception) -> dict[str, Any]:
+    """Build a stable JSON payload for resource read failures."""
+    return {
+        "schema_version": MCP_SCHEMA_VERSION,
+        "ok": False,
+        "resource": resource_name,
+        "instance": None if instance_dir is None else str(resolve_instance_dir(instance_dir)),
+        "error_code": "internal_error",
+        "errors": [error_message(exc)],
+    }

@@ -98,9 +98,10 @@ def add_command(
     except (ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError) as exc:
         _fail("proxy add", instance_dir, str(exc), json_output=json_output)
     if json_output:
-        emit_json_envelope(command="proxy add", instance=instance_dir, ok=True, data=serialize_mutation_result(result))
+        emit_json_envelope(command="proxy add", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
         return
     typer.echo(result.message)
+    _emit_warnings(result.warnings)
 
 
 @proxy_app.command("add-tcp")
@@ -127,9 +128,10 @@ def add_tcp_command(
     except (ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError) as exc:
         _fail("proxy add-tcp", instance_dir, str(exc), json_output=json_output)
     if json_output:
-        emit_json_envelope(command="proxy add-tcp", instance=instance_dir, ok=True, data=serialize_mutation_result(result))
+        emit_json_envelope(command="proxy add-tcp", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
         return
     typer.echo(result.message)
+    _emit_warnings(result.warnings)
 
 
 @proxy_app.command("update")
@@ -147,9 +149,10 @@ def update_command(
     except (ConfigLoadError, ProxyNotFoundError, ProxyAlreadyExistsError, ProxyConflictError, ValueError) as exc:
         _fail("proxy update", instance_dir, str(exc), json_output=json_output)
     if json_output:
-        emit_json_envelope(command="proxy update", instance=instance_dir, ok=True, data=serialize_mutation_result(result))
+        emit_json_envelope(command="proxy update", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
         return
     typer.echo(result.message)
+    _emit_warnings(result.warnings)
 
 
 @proxy_app.command("enable")
@@ -165,9 +168,10 @@ def enable_command(
     except (ConfigLoadError, ProxyNotFoundError) as exc:
         _fail("proxy enable", instance_dir, str(exc), json_output=json_output)
     if json_output:
-        emit_json_envelope(command="proxy enable", instance=instance_dir, ok=True, data=serialize_mutation_result(result))
+        emit_json_envelope(command="proxy enable", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
         return
     typer.echo(result.message)
+    _emit_warnings(result.warnings)
 
 
 @proxy_app.command("disable")
@@ -183,9 +187,10 @@ def disable_command(
     except (ConfigLoadError, ProxyNotFoundError) as exc:
         _fail("proxy disable", instance_dir, str(exc), json_output=json_output)
     if json_output:
-        emit_json_envelope(command="proxy disable", instance=instance_dir, ok=True, data=serialize_mutation_result(result))
+        emit_json_envelope(command="proxy disable", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
         return
     typer.echo(result.message)
+    _emit_warnings(result.warnings)
 
 
 @proxy_app.command("remove")
@@ -202,9 +207,10 @@ def remove_command(
     except (ConfigLoadError, ProxyNotFoundError) as exc:
         _fail("proxy remove", instance_dir, str(exc), json_output=json_output)
     if json_output:
-        emit_json_envelope(command="proxy remove", instance=instance_dir, ok=True, data=serialize_mutation_result(result))
+        emit_json_envelope(command="proxy remove", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
         return
     typer.echo(result.message)
+    _emit_warnings(result.warnings)
 
 
 @proxy_app.command("validate")
@@ -331,3 +337,8 @@ def _fail(command: str, instance: Path, message: str, *, json_output: bool) -> N
     else:
         typer.echo(f"ERROR: {message}")
     raise typer.Exit(code=1)
+
+
+def _emit_warnings(warnings: list[str]) -> None:
+    for warning in warnings:
+        typer.echo(f"WARNING: {warning}")
