@@ -283,9 +283,46 @@ def test_mcp_install_stdio_wrapper_creates_executable_script(tmp_path: Path) -> 
     assert script_path.stat().st_mode & 0o111
     content = script_path.read_text(encoding="utf-8")
     assert f"--instance-dir {tmp_path.resolve()}" in content
+    assert f"exec {Path(sys.executable).resolve()} -m frpdeck.mcp.server" in content
+    assert "source .venv/bin/activate" not in content
+    assert "exec python -m frpdeck.mcp.server" not in content
     assert str(Path(sys.executable).resolve()) in content
+    assert f"Wrapper path: {script_path.resolve()}" in result.stdout
+    assert f"Bound instance: {tmp_path.resolve()}" in result.stdout
+    assert f"Python: {Path(sys.executable).resolve()}" in result.stdout
     assert "Claude Code example:" in result.stdout
     assert str(script_path.resolve()) in result.stdout
+    assert "Please manually verify the SSH command first before enabling BatchMode yes." in result.stdout
+
+
+def test_mcp_install_stdio_wrapper_defaults_to_current_directory(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper"])
+
+    script_path = tmp_path / WRAPPER_FILENAME
+    assert result.exit_code == 0, result.stdout
+    assert script_path.exists()
+    content = script_path.read_text(encoding="utf-8")
+    assert f"--instance-dir {tmp_path.resolve()}" in content
+    assert f"Bound instance: {tmp_path.resolve()}" in result.stdout
+
+
+def test_mcp_install_stdio_wrapper_allows_python_override(tmp_path: Path) -> None:
+    fake_python = tmp_path / "bin" / "python-custom"
+    fake_python.parent.mkdir(parents=True, exist_ok=True)
+    fake_python.write_text("", encoding="utf-8")
+
+    result = RUNNER.invoke(
+        app,
+        ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path), "--python", str(fake_python)],
+    )
+
+    script_path = tmp_path / WRAPPER_FILENAME
+    assert result.exit_code == 0, result.stdout
+    content = script_path.read_text(encoding="utf-8")
+    assert f"exec {fake_python.resolve()} -m frpdeck.mcp.server" in content
+    assert f"Python: {fake_python.resolve()}" in result.stdout
 
 
 def test_mcp_uninstall_stdio_wrapper_removes_script(tmp_path: Path) -> None:
@@ -304,6 +341,16 @@ def test_mcp_uninstall_stdio_wrapper_is_not_fatal_when_missing(tmp_path: Path) -
 
     assert result.exit_code == 0, result.stdout
     assert "already absent" in result.stdout
+
+
+def test_mcp_uninstall_stdio_wrapper_defaults_to_current_directory(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
+    RUNNER.invoke(app, ["mcp", "install-stdio-wrapper"])
+
+    result = RUNNER.invoke(app, ["mcp", "uninstall-stdio-wrapper"])
+
+    assert result.exit_code == 0, result.stdout
+    assert not (tmp_path / WRAPPER_FILENAME).exists()
 
 
 def test_mcp_command_group_is_available() -> None:

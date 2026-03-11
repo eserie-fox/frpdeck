@@ -44,6 +44,18 @@ def build_claude_stdio_example(script_path: Path, *, ssh_host: str) -> str:
     )
 
 
+def build_install_summary(script_path: Path, *, instance_dir: Path, python_executable: Path) -> str:
+    """Build a concise install summary for wrapper creation."""
+    return "\n".join(
+        [
+            f"Wrapper path: {script_path}",
+            f"Bound instance: {instance_dir}",
+            f"Python: {python_executable}",
+            "Please manually verify the SSH command first before enabling BatchMode yes.",
+        ]
+    )
+
+
 def _detect_safe_workdir(fallback: Path) -> Path:
     for candidate in Path(__file__).resolve().parents:
         if (candidate / "pyproject.toml").exists():
@@ -53,7 +65,8 @@ def _detect_safe_workdir(fallback: Path) -> Path:
 
 @mcp_app.command("install-stdio-wrapper")
 def install_stdio_wrapper_command(
-    instance: Path = typer.Option(..., "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"),
+    instance: Path = typer.Option(Path("."), "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"),
+    python_path: Path | None = typer.Option(None, "--python", exists=True, file_okay=True, dir_okay=False, resolve_path=True, help="Python interpreter to embed in the wrapper script"),
     ssh_host: str = typer.Option(DEFAULT_SSH_HOST, "--ssh-host", help="Host shown in the Claude Code example command"),
 ) -> None:
     """Install or update a bound stdio MCP wrapper script for one instance."""
@@ -61,17 +74,19 @@ def install_stdio_wrapper_command(
     script_path = instance_dir / WRAPPER_FILENAME
     script_existed = script_path.exists()
     workdir = _detect_safe_workdir(instance_dir)
-    content = render_stdio_wrapper(instance_dir, python_executable=Path(sys.executable).resolve(), workdir=workdir)
+    python_executable = (python_path or Path(sys.executable)).resolve()
+    content = render_stdio_wrapper(instance_dir, python_executable=python_executable, workdir=workdir)
     script_path.write_text(content, encoding="utf-8")
     script_path.chmod(0o755)
 
-    typer.echo(f"{'Updated' if script_existed else 'Installed'} stdio wrapper: {script_path}")
+    typer.echo(f"{'Updated' if script_existed else 'Installed'} stdio wrapper.")
+    typer.echo(build_install_summary(script_path, instance_dir=instance_dir, python_executable=python_executable))
     typer.echo(build_claude_stdio_example(script_path, ssh_host=ssh_host))
 
 
 @mcp_app.command("uninstall-stdio-wrapper")
 def uninstall_stdio_wrapper_command(
-    instance: Path = typer.Option(..., "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"),
+    instance: Path = typer.Option(Path("."), "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"),
 ) -> None:
     """Remove the bound stdio MCP wrapper script for one instance."""
     instance_dir = instance.resolve()

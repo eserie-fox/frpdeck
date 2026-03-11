@@ -107,13 +107,76 @@ frpdeck uninstall --instance ./my-client --purge
 
 ## MCP
 
-Start the local stdio MCP server with:
+The current MCP surface is a thin local stdio wrapper over frpdeck tools and status resources. It binds to one frpdeck instance directory at a time and is best used through a generated wrapper script. It does not provide HTTP transport, remote auth, or a web UI.
+
+Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point Claude Code at that script. Prefer the generated wrapper over writing your own script unless you have a specific reason to customize it. The wrapper binds to your chosen instance directory and embeds the Python interpreter that is running `frpdeck` when the script is created.
+
+In practice, wrapper scripts are most commonly generated for client instances, because proxy configuration is usually managed on the client side. That is a usage pattern rather than a hard restriction: the MCP wrapper is tied to an instance directory, not to a separate client-only mode in the documentation.
+
+### Recommended MCP setup
+
+On the FRP machine, change into your instance directory and generate the wrapper:
+
+```bash
+cd /path/to/your-instance
+frpdeck mcp install-stdio-wrapper
+```
+
+This is equivalent to:
+
+```bash
+frpdeck mcp install-stdio-wrapper --instance /path/to/your-instance
+```
+
+The command writes `/path/to/your-instance/start-mcp-stdio.sh`, binds that script to the resolved absolute instance path, and embeds the Python interpreter that is running `frpdeck` at generation time. Replace the example path with your own instance directory.
+
+If you need to start the server manually without the wrapper, you can still use:
 
 ```bash
 python -m frpdeck.mcp.server
 ```
 
-The current MCP surface is a thin local wrapper over frpdeck tools and status resources. It does not currently provide HTTP transport, remote auth, or a web UI.
+For a bound one-instance server, the direct form is:
+
+```bash
+python -m frpdeck.mcp.server --instance-dir /path/to/your-instance
+```
+
+Before configuring Claude Code, manually verify the SSH command from the Claude Code machine. Replace the host name and path with your own SSH destination and instance directory:
+
+```bash
+ssh your-ssh-host /path/to/your-instance/start-mcp-stdio.sh
+```
+
+That command should normally stay attached and wait for stdin/stdout traffic because the MCP stdio server is waiting for client messages. If it exits immediately or prints an error, fix the remote Python environment, instance path, or SSH setup first.
+
+Once the manual SSH command works, add the MCP entry in Claude Code:
+
+```bash
+claude mcp add --scope user --transport stdio frpdeck -- \
+	ssh your-ssh-host /path/to/your-instance/start-mcp-stdio.sh
+```
+
+### SSH and BatchMode
+
+`BatchMode yes` is useful for unattended or scripted SSH sessions because it disables interactive password prompts and host-key confirmation. Do not treat it as the first step.
+
+Recommended order:
+
+1. Manually run the SSH wrapper command until it works without prompts.
+2. Confirm that host keys are trusted and key-based auth is already working.
+3. Only then consider enabling `BatchMode yes` in `~/.ssh/config`.
+
+Example SSH config shape:
+
+```sshconfig
+Host your-frp-host
+	HostName <host-or-ip>
+	User <user>
+	IdentityFile ~/.ssh/id_ed25519
+	# Add BatchMode yes only after manual SSH testing succeeds
+	# BatchMode yes
+```
 
 ## Test fixtures
 
