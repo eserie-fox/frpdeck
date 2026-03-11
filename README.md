@@ -14,7 +14,14 @@ It is also MCP-friendly. `frpdeck` includes a local stdio MCP thin wrapper so an
 
 ## Installation
 
-Install from source:
+Install from PyPI:
+
+```bash
+pip install frpdeck
+frpdeck --help
+```
+
+Install from source when you want a local checkout:
 
 ```bash
 python3.11 -m venv .venv
