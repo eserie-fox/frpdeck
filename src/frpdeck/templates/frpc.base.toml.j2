@@ -2,6 +2,9 @@ user = "{{ user }}"
 serverAddr = "{{ server_addr }}"
 serverPort = {{ server_port }}
 loginFailExit = {{ "true" if login_fail_exit else "false" }}
+{% if includes_enabled %}
+includes = ["{{ includes_glob }}"]
+{% endif %}
 
 [transport]
 protocol = "{{ transport_protocol }}"
@@ -29,8 +32,4 @@ type = "file"
 
 [auth.tokenSource.file]
 path = "{{ auth.token_file }}"
-{% endif %}
-
-{% if includes_enabled %}
-includes = ["{{ includes_glob }}"]
 {% endif %}

@@ -2,6 +2,7 @@ user = "client-node"
 serverAddr = "PLEASE_FILL_SERVER_ADDR"
 serverPort = 7000
 loginFailExit = true
+includes = ["/mnt/data_partition/work/frpdeck/examples/client-node/runtime/config/proxies.d/*.toml"]
 
 [transport]
 protocol = "tcp"
@@ -24,5 +25,3 @@ type = "file"
 
 [auth.tokenSource.file]
 path = "/mnt/data_partition/work/frpdeck/examples/client-node/secrets/token.txt"
-
-includes = ["/mnt/data_partition/work/frpdeck/examples/client-node/runtime/config/proxies.d/*.toml"]
