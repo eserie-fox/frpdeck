@@ -11,7 +11,6 @@ import os
 
 import typer
 
-from frpdeck.logging import instance_logging_context
 from frpdeck.services.audit import build_actor, record_audit_event
 from frpdeck.storage.file_lock import instance_lock
 from frpdeck.storage.load import load_node_config
@@ -149,21 +148,20 @@ def install_stdio_wrapper_command(
     script_path = instance_dir / WRAPPER_FILENAME
     workdir = _detect_safe_workdir(instance_dir)
     python_executable = resolve_wrapper_python_executable(python_path)
-    with instance_logging_context(instance_dir):
-        with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
-            before = _wrapper_state(script_path, instance_dir=instance_dir)
-            content = render_stdio_wrapper(instance_dir, python_executable=python_executable, workdir=workdir)
-            script_path.write_text(content, encoding="utf-8")
-            script_path.chmod(0o755)
-            after = _wrapper_state(script_path, instance_dir=instance_dir, python_executable=python_executable)
-            warning = _record_wrapper_audit(
-                instance_dir,
-                operation="mcp_wrapper_install",
-                target={"wrapper_path": script_path, "instance_dir": instance_dir},
-                before=before,
-                after=after,
-                result={"ok": True, "error_code": None, "errors": [], "warnings": []},
-            )
+    with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
+        before = _wrapper_state(script_path, instance_dir=instance_dir)
+        content = render_stdio_wrapper(instance_dir, python_executable=python_executable, workdir=workdir)
+        script_path.write_text(content, encoding="utf-8")
+        script_path.chmod(0o755)
+        after = _wrapper_state(script_path, instance_dir=instance_dir, python_executable=python_executable)
+        warning = _record_wrapper_audit(
+            instance_dir,
+            operation="mcp_wrapper_install",
+            target={"wrapper_path": script_path, "instance_dir": instance_dir},
+            before=before,
+            after=after,
+            result={"ok": True, "error_code": None, "errors": [], "warnings": []},
+        )
 
     typer.echo(f"{'Updated' if before['exists'] else 'Installed'} stdio wrapper.")
     typer.echo(build_install_summary(script_path, instance_dir=instance_dir, python_executable=python_executable))
@@ -179,23 +177,9 @@ def uninstall_stdio_wrapper_command(
     """Remove the bound stdio MCP wrapper script for one instance."""
     instance_dir = instance.resolve()
     script_path = instance_dir / WRAPPER_FILENAME
-    with instance_logging_context(instance_dir):
-        with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
-            before = _wrapper_state(script_path, instance_dir=instance_dir)
-            if not script_path.exists():
-                warning = _record_wrapper_audit(
-                    instance_dir,
-                    operation="mcp_wrapper_uninstall",
-                    target={"wrapper_path": script_path, "instance_dir": instance_dir},
-                    before=before,
-                    after=_wrapper_state(script_path, instance_dir=instance_dir),
-                    result={"ok": True, "error_code": None, "errors": [], "warnings": []},
-                )
-                typer.echo(f"Stdio wrapper already absent: {script_path}")
-                if warning is not None:
-                    typer.echo(f"WARNING: {warning}")
-                return
-            script_path.unlink()
+    with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
+        before = _wrapper_state(script_path, instance_dir=instance_dir)
+        if not script_path.exists():
             warning = _record_wrapper_audit(
                 instance_dir,
                 operation="mcp_wrapper_uninstall",
@@ -204,6 +188,19 @@ def uninstall_stdio_wrapper_command(
                 after=_wrapper_state(script_path, instance_dir=instance_dir),
                 result={"ok": True, "error_code": None, "errors": [], "warnings": []},
             )
+            typer.echo(f"Stdio wrapper already absent: {script_path}")
+            if warning is not None:
+                typer.echo(f"WARNING: {warning}")
+            return
+        script_path.unlink()
+        warning = _record_wrapper_audit(
+            instance_dir,
+            operation="mcp_wrapper_uninstall",
+            target={"wrapper_path": script_path, "instance_dir": instance_dir},
+            before=before,
+            after=_wrapper_state(script_path, instance_dir=instance_dir),
+            result={"ok": True, "error_code": None, "errors": [], "warnings": []},
+        )
     typer.echo(f"Removed stdio wrapper: {script_path}")
     if warning is not None:
         typer.echo(f"WARNING: {warning}")

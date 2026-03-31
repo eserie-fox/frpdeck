@@ -51,13 +51,15 @@ These JSON files are runtime-critical resources. In particular:
 - operational defaults come from `node_client.json`, `node_server.json`, and `proxy_file.json`
 - scaffold data is layered as operational defaults plus `scaffold_*_overrides.json`
 - scaffold assets currently include `scaffold_instance_layout.json` and `scaffold_token_example.json`
-- packaging changes must keep `config_defaults/*.json` in the built artifacts
+- packaging changes must keep `config_defaults/**/*.json` in the built artifacts
 
 ## Release Notes
 
 - Do not bump the project version unless the task explicitly asks for it
 - Keep package data in sync with new config defaults
 - README and `docs/` should move together with config-shape changes
+- Published release notes should live under `docs/release-notes/`
+- Use `docs/release.md` as the lightweight version/build/tag checklist
 
 ## Local MCP Testing
 
@@ -108,4 +110,4 @@ Configuration changes are not forward-compatible by policy right now.
 
 - `pytest` is the primary verification path when dev dependencies are installed
 - `python -m build` is optional smoke coverage for release artifacts when the `build` module is available
-- Even when `build` is unavailable locally, keep package-resource smoke tests for `config_defaults/*.json` in the test suite
+- Even when `build` is unavailable locally, keep package-resource smoke tests for `config_defaults/**/*.json` in the test suite

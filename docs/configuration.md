@@ -180,7 +180,7 @@ This keeps config loading separate from root-logger mutation and makes fail-fast
 
 ## Packaging Note
 
-`src/frpdeck/config_defaults/*.json` are runtime-critical package resources.
+`src/frpdeck/config_defaults/**/*.json` are runtime-critical package resources.
 
 - They are loaded through package resource APIs, not by reaching into the source tree directly.
 - Wheel/sdist packaging must include them together with the Jinja templates.

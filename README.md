@@ -44,6 +44,8 @@ Key design notes now live under `docs/`:
 - [`docs/architecture.md`](docs/architecture.md): layer boundaries and dependency direction
 - [`docs/configuration.md`](docs/configuration.md): instance config shape, defaults, path resolution, and logging semantics
 - [`docs/development.md`](docs/development.md): local development, tests, packaging, and MCP testing
+- [`docs/release.md`](docs/release.md): version bump, build, and tag/publish checklist
+- [`CHANGELOG.md`](CHANGELOG.md): release history
 
 ## Features
 

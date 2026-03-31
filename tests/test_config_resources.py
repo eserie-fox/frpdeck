@@ -40,4 +40,4 @@ def test_pyproject_package_data_includes_config_default_json_resources() -> None
     package_data = pyproject["tool"]["setuptools"]["package-data"]["frpdeck"]
 
     assert "templates/**/*.j2" in package_data
-    assert "config_defaults/*.json" in package_data
+    assert "config_defaults/**/*.json" in package_data

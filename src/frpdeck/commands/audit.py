@@ -8,7 +8,6 @@ from typing import Any
 import typer
 
 from frpdeck.commands.output import emit_json_envelope
-from frpdeck.logging import instance_logging_context
 from frpdeck.services.audit import audit_log_path, read_recent_audit_entries
 
 
@@ -27,8 +26,7 @@ def recent_command(
 ) -> None:
     """Show the most recent write audit entries for one instance."""
     instance_dir = instance.resolve()
-    with instance_logging_context(instance_dir):
-        entries = read_recent_audit_entries(instance_dir, limit=limit)
+    entries = read_recent_audit_entries(instance_dir, limit=limit)
 
     if json_output:
         emit_json_envelope(
@@ -42,8 +40,7 @@ def recent_command(
         return
 
     if not entries:
-        with instance_logging_context(instance_dir):
-            has_audit_log = audit_log_path(instance_dir).exists()
+        has_audit_log = audit_log_path(instance_dir).exists()
         if has_audit_log:
             typer.echo("no audit entries found")
         else:
