@@ -25,6 +25,7 @@ from frpdeck.domain.errors import (
 )
 from frpdeck.domain.proxy import TcpProxyConfig
 from frpdeck.domain.proxy_management import ProxyUpdatePatch
+from frpdeck.logging import instance_logging_context
 from frpdeck.services.proxy_manager import ProxyManager, load_proxy_spec_from_file
 
 
@@ -44,7 +45,8 @@ def list_command(
     """List proxies from proxies.yaml."""
     instance_dir = instance.resolve()
     try:
-        proxies = MANAGER.list_proxies(instance_dir)
+        with instance_logging_context(instance_dir):
+            proxies = MANAGER.list_proxies(instance_dir)
     except ConfigLoadError as exc:
         _fail("proxy list", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -76,7 +78,8 @@ def show_command(
     """Show a single proxy as YAML."""
     instance_dir = instance.resolve()
     try:
-        proxy = MANAGER.get_proxy(instance_dir, name)
+        with instance_logging_context(instance_dir):
+            proxy = MANAGER.get_proxy(instance_dir, name)
     except (ConfigLoadError, ProxyNotFoundError) as exc:
         _fail("proxy show", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -94,7 +97,8 @@ def add_command(
     """Add a proxy from a YAML spec file."""
     instance_dir = instance.resolve()
     try:
-        result = MANAGER.add_proxy(instance_dir, load_proxy_spec_from_file(from_file.resolve()))
+        with instance_logging_context(instance_dir):
+            result = MANAGER.add_proxy(instance_dir, load_proxy_spec_from_file(from_file.resolve()))
     except (ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError) as exc:
         _fail("proxy add", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -124,7 +128,8 @@ def add_tcp_command(
     )
     instance_dir = instance.resolve()
     try:
-        result = MANAGER.add_proxy(instance_dir, spec)
+        with instance_logging_context(instance_dir):
+            result = MANAGER.add_proxy(instance_dir, spec)
     except (ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError) as exc:
         _fail("proxy add-tcp", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -144,8 +149,9 @@ def update_command(
     """Patch an existing proxy from a YAML file."""
     instance_dir = instance.resolve()
     try:
-        patch = ProxyUpdatePatch.model_validate(load_proxy_spec_from_file(from_file.resolve()))
-        result = MANAGER.update_proxy(instance_dir, name, patch)
+        with instance_logging_context(instance_dir):
+            patch = ProxyUpdatePatch.model_validate(load_proxy_spec_from_file(from_file.resolve()))
+            result = MANAGER.update_proxy(instance_dir, name, patch)
     except (ConfigLoadError, ProxyNotFoundError, ProxyAlreadyExistsError, ProxyConflictError, ValueError) as exc:
         _fail("proxy update", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -164,7 +170,8 @@ def enable_command(
     """Enable a proxy in proxies.yaml."""
     instance_dir = instance.resolve()
     try:
-        result = MANAGER.enable_proxy(instance_dir, name)
+        with instance_logging_context(instance_dir):
+            result = MANAGER.enable_proxy(instance_dir, name)
     except (ConfigLoadError, ProxyNotFoundError) as exc:
         _fail("proxy enable", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -183,7 +190,8 @@ def disable_command(
     """Disable a proxy in proxies.yaml."""
     instance_dir = instance.resolve()
     try:
-        result = MANAGER.disable_proxy(instance_dir, name)
+        with instance_logging_context(instance_dir):
+            result = MANAGER.disable_proxy(instance_dir, name)
     except (ConfigLoadError, ProxyNotFoundError) as exc:
         _fail("proxy disable", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -203,7 +211,8 @@ def remove_command(
     """Remove a proxy, soft by default."""
     instance_dir = instance.resolve()
     try:
-        result = MANAGER.remove_proxy(instance_dir, name, soft=not hard)
+        with instance_logging_context(instance_dir):
+            result = MANAGER.remove_proxy(instance_dir, name, soft=not hard)
     except (ConfigLoadError, ProxyNotFoundError) as exc:
         _fail("proxy remove", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -221,7 +230,8 @@ def validate_command(
     """Validate only the proxy set in proxies.yaml."""
     instance_dir = instance.resolve()
     try:
-        report = MANAGER.validate_proxy_set(instance_dir)
+        with instance_logging_context(instance_dir):
+            report = MANAGER.validate_proxy_set(instance_dir)
     except ConfigLoadError as exc:
         _fail("proxy validate", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -253,7 +263,8 @@ def preview_command(
     """Preview proxy render results without touching rendered/."""
     instance_dir = instance.resolve()
     try:
-        report = MANAGER.preview_proxy_changes(instance_dir)
+        with instance_logging_context(instance_dir):
+            report = MANAGER.preview_proxy_changes(instance_dir)
     except (ConfigLoadError, UnsupportedOperationError) as exc:
         _fail("proxy preview", instance_dir, str(exc), json_output=json_output)
     if json_output:
@@ -282,14 +293,15 @@ def preview_command(
 @proxy_app.command("apply")
 def apply_command(
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    no_reload: bool = typer.Option(False, "--no-reload", help="Render and sync runtime config without frpc reload"),
+    no_reload: bool = typer.Option(False, "--no-reload", help="Render and sync FRP runtime config without frpc reload"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ) -> None:
-    """Validate, render, sync runtime config, and optionally reload frpc."""
+    """Validate, render, sync FRP runtime config, and optionally reload frpc."""
     instance_dir = instance.resolve()
     try:
-        applied_proxies = [proxy.name for proxy in MANAGER.list_proxies(instance_dir) if proxy.enabled]
-        report = MANAGER.apply_proxy_changes(instance_dir, reload=not no_reload)
+        with instance_logging_context(instance_dir):
+            applied_proxies = [proxy.name for proxy in MANAGER.list_proxies(instance_dir) if proxy.enabled]
+            report = MANAGER.apply_proxy_changes(instance_dir, reload=not no_reload)
     except (ConfigLoadError, UnsupportedOperationError, ProxyApplyError) as exc:
         _fail("proxy apply", instance_dir, str(exc), json_output=json_output)
     if json_output:

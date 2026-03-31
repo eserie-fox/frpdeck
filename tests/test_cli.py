@@ -1,21 +1,20 @@
 from pathlib import Path
 import json
+import logging
 import shutil
 import sys
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
+import yaml
 
 from frpdeck.cli import app
 from frpdeck.commands.mcp import WRAPPER_FILENAME
-from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig
 from frpdeck.domain.errors import CommandExecutionError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
 from frpdeck.domain.proxy_management import ApplyReport
-from frpdeck.domain.server_config import ServerCommonConfig
-from frpdeck.domain.state import ClientNodeConfig, ServerNodeConfig
-from frpdeck.domain.systemd import ServiceConfig
 from frpdeck.storage.dump import dump_yaml_model
+from tests.support import build_client_node, build_server_node
 
 
 RUNNER = CliRunner()
@@ -27,13 +26,9 @@ def _load_audit_records(instance_dir: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _write_client_instance(instance_dir: Path) -> None:
+def _write_client_instance(instance_dir: Path, *, node_overrides: dict[str, object] | None = None) -> None:
     dump_yaml_model(
-        ClientNodeConfig(
-            instance_name="client-demo",
-            service=ServiceConfig(service_name="client-demo-frpc"),
-            client=ClientCommonConfig(server_addr="example.com", server_port=7000, auth=AuthConfig(token="secret")),
-        ),
+        build_client_node(overrides=node_overrides),
         instance_dir / "node.yaml",
     )
     dump_yaml_model(
@@ -49,11 +44,7 @@ def _write_client_instance(instance_dir: Path) -> None:
 
 def _write_server_instance(instance_dir: Path) -> None:
     dump_yaml_model(
-        ServerNodeConfig(
-            instance_name="server-demo",
-            service=ServiceConfig(service_name="server-demo-frps"),
-            server=ServerCommonConfig(auth=AuthConfig(token="secret")),
-        ),
+        build_server_node(),
         instance_dir / "node.yaml",
     )
     dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
@@ -72,6 +63,23 @@ def test_init_creates_base_files(tmp_path: Path) -> None:
     assert (tmp_path / "demo-node" / "node.yaml").exists()
     assert (tmp_path / "demo-node" / "proxies.yaml").exists()
     assert (tmp_path / "demo-node" / "secrets" / "token.txt.example").exists()
+    assert (tmp_path / "demo-node" / "rendered" / "proxies.d").is_dir()
+    assert (tmp_path / "demo-node" / "rendered" / "systemd").is_dir()
+    assert (tmp_path / "demo-node" / "rendered" / "bin").is_dir()
+    assert (tmp_path / "demo-node" / "backups").is_dir()
+    assert (tmp_path / "demo-node" / "state").is_dir()
+    assert (tmp_path / "demo-node" / "secrets").is_dir()
+    node_payload = yaml.safe_load((tmp_path / "demo-node" / "node.yaml").read_text(encoding="utf-8"))
+    proxies_payload = yaml.safe_load((tmp_path / "demo-node" / "proxies.yaml").read_text(encoding="utf-8"))
+    assert node_payload["client"]["server_addr"] == "PLEASE_FILL_SERVER_ADDR"
+    assert node_payload["client"]["auth"]["token_file"] == "secrets/token.txt"
+    assert node_payload["client"]["log"]["to"] == "runtime/logs/frpc.log"
+    assert node_payload["client"]["server_port"] == 7000
+    assert node_payload["frpdeck_logging"]["file_path"] == "state/logs/frpdeck.log"
+    assert node_payload["frpdeck_logging"]["stream"] == "stderr"
+    assert node_payload["service"]["service_name"] == "frpdeck-demo-node-frpc"
+    assert proxies_payload["proxies"][0]["name"] == "sample_tcp"
+    assert (tmp_path / "demo-node" / "secrets" / "token.txt.example").read_text(encoding="utf-8") == "PLEASE_FILL_TOKEN\n"
 
 
 def test_render_succeeds_on_example_instance(tmp_path: Path) -> None:
@@ -160,6 +168,36 @@ def test_proxy_list_json_returns_envelope() -> None:
     assert payload["instance"] == str(instance.resolve())
     assert isinstance(payload["data"]["proxies"], list)
     assert payload["data"]["count"] >= 1
+
+
+def test_proxy_list_json_stays_clean_with_instance_logging_enabled(monkeypatch, tmp_path: Path) -> None:
+    instance = tmp_path / "client-node"
+    _write_client_instance(
+        instance,
+        node_overrides={
+            "frpdeck_logging": {
+                "level": "INFO",
+                "stream": "stderr",
+                "file_path": "state/logs/frpdeck.log",
+            }
+        },
+    )
+
+    def fake_list_proxies(instance_dir: Path):
+        logging.getLogger("frpdeck.test").info("proxy list invoked")
+        return []
+
+    monkeypatch.setattr("frpdeck.commands.proxy.MANAGER.list_proxies", fake_list_proxies)
+
+    result = RUNNER.invoke(
+        app,
+        ["proxy", "list", "--instance", str(instance), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert (instance / "state" / "logs" / "frpdeck.log").is_symlink()
 
 
 def test_proxy_show_json_returns_single_proxy() -> None:
@@ -447,4 +485,3 @@ def test_audit_command_group_is_available() -> None:
 
     assert result.exit_code == 0, result.stdout
     assert "recent" in result.stdout
-

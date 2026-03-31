@@ -3,17 +3,14 @@ import json
 
 import pytest
 
-from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig
 from frpdeck.domain.errors import ProxyAlreadyExistsError, ProxyConflictError, UnsupportedOperationError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
 from frpdeck.domain.proxy_management import ProxyUpdatePatch
-from frpdeck.domain.server_config import ServerCommonConfig
-from frpdeck.domain.state import ClientNodeConfig, ServerNodeConfig
-from frpdeck.domain.systemd import ServiceConfig
 from frpdeck.services.proxy_manager import ProxyManager
 from frpdeck.services.renderer import RenderSummary
 from frpdeck.storage.dump import dump_yaml_model
 from frpdeck.storage.load import load_proxy_file
+from tests.support import build_client_node, build_server_node
 
 
 def _load_audit_records(instance_dir: Path) -> list[dict[str, object]]:
@@ -26,26 +23,19 @@ def _revision_dirs(instance_dir: Path) -> list[Path]:
     return sorted(root.iterdir()) if root.exists() else []
 
 
-def _write_client_instance(instance_dir: Path, proxies: list[object] | None = None) -> None:
-    node = ClientNodeConfig(
-        instance_name="client-demo",
-        service=ServiceConfig(service_name="client-demo-frpc"),
-        client=ClientCommonConfig(
-            server_addr="example.com",
-            server_port=7000,
-            auth=AuthConfig(token="secret"),
-        ),
-    )
+def _write_client_instance(
+    instance_dir: Path,
+    proxies: list[object] | None = None,
+    *,
+    instance_name: str = "client-demo",
+) -> None:
+    node = build_client_node(instance_name=instance_name)
     dump_yaml_model(node, instance_dir / "node.yaml")
     dump_yaml_model(ProxyFile(proxies=list(proxies or [])), instance_dir / "proxies.yaml")
 
 
 def _write_server_instance(instance_dir: Path) -> None:
-    node = ServerNodeConfig(
-        instance_name="server-demo",
-        service=ServiceConfig(service_name="server-demo-frps"),
-        server=ServerCommonConfig(auth=AuthConfig(token="secret")),
-    )
+    node = build_server_node()
     dump_yaml_model(node, instance_dir / "node.yaml")
     dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
 
@@ -235,3 +225,14 @@ def test_proxy_write_surfaces_audit_failure_as_warning(monkeypatch: pytest.Monke
     assert result.changed is True
     assert result.warnings
     assert "audit log append failed" in result.warnings[0]
+
+
+def test_audit_records_keep_logical_instance_name_when_directory_differs(tmp_path: Path) -> None:
+    instance_dir = tmp_path / "physical-dir"
+    _write_client_instance(instance_dir, instance_name="logical-instance")
+
+    ProxyManager().add_proxy(instance_dir, TcpProxyConfig(name="ssh", local_port=22, remote_port=6000))
+
+    record = _load_audit_records(instance_dir)[0]
+    assert record["instance_dir"] == str(instance_dir.resolve())
+    assert record["instance_name"] == "logical-instance"

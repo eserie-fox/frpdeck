@@ -1,0 +1,12 @@
+{
+  "common_directories": [
+    "rendered/proxies.d",
+    "rendered/systemd",
+    "rendered/bin",
+    "backups",
+    "state",
+    "secrets"
+  ],
+  "client_directories": [],
+  "server_directories": []
+}

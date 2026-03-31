@@ -448,6 +448,7 @@ class ProxyManager:
             record_audit_event(
                 instance_dir,
                 operation=operation,
+                instance_name=self._instance_name(instance_dir),
                 target=target,
                 before=before,
                 after=after,
@@ -503,6 +504,7 @@ class ProxyManager:
             record_audit_event(
                 instance_dir,
                 operation="proxy_apply",
+                instance_name=self._instance_name(instance_dir),
                 target={"reload_requested": before.get("reload_requested")},
                 before=before,
                 after=after,
@@ -564,9 +566,15 @@ class ProxyManager:
         if not binary_path.exists():
             raise ProxyApplyError(f"frpc binary not found: {binary_path}")
         if not config_path.exists():
-            raise ProxyApplyError(f"runtime config not found: {config_path}")
+            raise ProxyApplyError(f"FRP runtime config not found: {config_path}")
         result = run_command([str(binary_path), "reload", "-c", str(config_path)])
         return result.stdout or "reload completed"
+
+    def _instance_name(self, instance_dir: Path) -> str | None:
+        try:
+            return load_node_config(instance_dir).instance_name
+        except ConfigLoadError:
+            return None
 
 
 def load_proxy_spec_from_file(path: Path) -> dict[str, object]:

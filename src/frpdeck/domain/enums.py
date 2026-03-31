@@ -30,3 +30,20 @@ class InstallChannel(str, Enum):
 class BandwidthLimitMode(str, Enum):
     CLIENT = "client"
     SERVER = "server"
+
+
+class FrpdeckLogLevel(str, Enum):
+    CRITICAL = "CRITICAL"
+    ERROR = "ERROR"
+    WARNING = "WARNING"
+    INFO = "INFO"
+    DEBUG = "DEBUG"
+    NOTSET = "NOTSET"
+
+
+class FrpLogLevel(str, Enum):
+    TRACE = "trace"
+    DEBUG = "debug"
+    INFO = "info"
+    WARN = "warn"
+    ERROR = "error"

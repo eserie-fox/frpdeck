@@ -6,22 +6,27 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
+from frpdeck.logging import instance_logging_context
 from frpdeck.mcp.serialization import dump_json, resource_error_payload, resolve_instance_dir
 from frpdeck.services.status_service import StatusService
 
 
 def instance_status_resource(instance_dir: str | Path, *, status_service: StatusService | None = None) -> str:
     service = status_service or StatusService()
+    resolved_instance = resolve_instance_dir(instance_dir)
     try:
-        return dump_json(service.get_instance_status(resolve_instance_dir(instance_dir)))
+        with instance_logging_context(resolved_instance):
+            return dump_json(service.get_instance_status(resolved_instance))
     except Exception as exc:
         return dump_json(resource_error_payload("instance_status", instance_dir, exc))
 
 
 def proxy_runtime_status_resource(instance_dir: str | Path, *, status_service: StatusService | None = None) -> str:
     service = status_service or StatusService()
+    resolved_instance = resolve_instance_dir(instance_dir)
     try:
-        return dump_json(service.get_proxy_runtime_status(resolve_instance_dir(instance_dir)))
+        with instance_logging_context(resolved_instance):
+            return dump_json(service.get_proxy_runtime_status(resolved_instance))
     except Exception as exc:
         return dump_json(resource_error_payload("proxy_runtime_status", instance_dir, exc))
 

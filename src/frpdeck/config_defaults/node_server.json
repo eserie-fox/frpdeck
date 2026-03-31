@@ -1,0 +1,45 @@
+{
+  "role": "server",
+  "paths": {
+    "install_dir": "runtime/bin",
+    "config_root": "runtime/config",
+    "systemd_unit_dir": "/etc/systemd/system"
+  },
+  "binary": {
+    "arch": "amd64",
+    "os": "linux",
+    "channel": "github",
+    "install_strategy": "replace"
+  },
+  "service": {
+    "user": "root",
+    "group": "root",
+    "restart": "always",
+    "restart_sec": 2,
+    "wanted_by": "multi-user.target"
+  },
+  "frpdeck_logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    "file_path": "state/logs/frpdeck.log",
+    "retention_days": 7,
+    "stream": "stderr"
+  },
+  "server": {
+    "bind_addr": "0.0.0.0",
+    "bind_port": 7000,
+    "kcp_bind_port": null,
+    "quic_bind_port": null,
+    "vhost_http_port": 80,
+    "vhost_https_port": 443,
+    "log": {
+      "to": "runtime/logs/frps.log",
+      "level": "info",
+      "max_days": 7,
+      "disable_print_color": true
+    },
+    "auth": {
+      "method": "token"
+    }
+  }
+}

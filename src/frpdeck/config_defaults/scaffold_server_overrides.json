@@ -1,0 +1,8 @@
+{
+  "server": {
+    "subdomain_host": "PLEASE_FILL_DOMAIN",
+    "auth": {
+      "token_file": "secrets/token.txt"
+    }
+  }
+}

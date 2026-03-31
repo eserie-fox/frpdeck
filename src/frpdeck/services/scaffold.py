@@ -4,76 +4,52 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig, FrpLogConfig, WebServerConfig
+from frpdeck.config import (
+    config_deep_merge,
+    load_node_defaults,
+    load_proxy_file_defaults,
+    load_scaffold_instance_layout,
+    load_scaffold_node_overrides,
+    load_scaffold_proxy_file_overrides,
+    load_scaffold_token_example,
+)
 from frpdeck.domain.enums import Role
-from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig
-from frpdeck.domain.server_config import ServerCommonConfig
-from frpdeck.domain.state import ClientNodeConfig, ServerNodeConfig
-from frpdeck.domain.systemd import ServiceConfig
+from frpdeck.domain.proxy import ProxyFile
+from frpdeck.domain.state import NODE_CONFIG_ADAPTER
 from frpdeck.storage.dump import dump_yaml_model
-
-
-PLACEHOLDER_SERVER_ADDR = "PLEASE_FILL_SERVER_ADDR"
-PLACEHOLDER_TOKEN = "PLEASE_FILL_TOKEN"
-PLACEHOLDER_DOMAIN = "PLEASE_FILL_DOMAIN"
 
 
 def scaffold_instance(base_dir: Path, role: Role, instance_name: str) -> Path:
     """Create an instance directory with starter files."""
     instance_dir = (base_dir / instance_name).resolve()
     instance_dir.mkdir(parents=True, exist_ok=False)
-    for relative in [
-        "rendered/proxies.d",
-        "rendered/systemd",
-        "rendered/bin",
-        "backups",
-        "state",
-        "secrets",
-    ]:
+    for relative in load_scaffold_instance_layout().directories_for_role(role):
         (instance_dir / relative).mkdir(parents=True, exist_ok=True)
 
     service_suffix = "frpc" if role == Role.CLIENT else "frps"
-    service = ServiceConfig(service_name=f"frpdeck-{instance_name}-{service_suffix}")
-
+    service_name = f"frpdeck-{instance_name}-{service_suffix}"
+    node_defaults = load_node_defaults(role)
+    node_scaffold_overrides = load_scaffold_node_overrides(role)
+    node_payload = config_deep_merge(
+        config_deep_merge(node_defaults, node_scaffold_overrides),
+        {
+            "instance_name": instance_name,
+            "role": role.value,
+            "service": {"service_name": service_name},
+        },
+    )
     if role == Role.CLIENT:
-        node = ClientNodeConfig(
-            instance_name=instance_name,
-            service=service,
-            client=ClientCommonConfig(
-                user=instance_name,
-                server_addr=PLACEHOLDER_SERVER_ADDR,
-                server_port=7000,
-                web_server=WebServerConfig(addr="127.0.0.1", port=7400),
-                log=FrpLogConfig(to=Path("runtime/logs/frpc.log"), level="info", max_days=7, disable_print_color=True),
-                auth=AuthConfig(token_file=Path("secrets/token.txt")),
-            ),
-        )
-        dump_yaml_model(node, instance_dir / "node.yaml")
-        proxies = ProxyFile(
-            proxies=[
-                TcpProxyConfig(
-                    name="sample_tcp",
-                    description="Example TCP proxy",
-                    local_port=22,
-                    remote_port=6000,
-                )
-            ]
-        )
-        dump_yaml_model(proxies, instance_dir / "proxies.yaml")
-    else:
-        node = ServerNodeConfig(
-            instance_name=instance_name,
-            service=service,
-            server=ServerCommonConfig(
-                bind_addr="0.0.0.0",
-                bind_port=7000,
-                subdomain_host=PLACEHOLDER_DOMAIN,
-                log=FrpLogConfig(to=Path("runtime/logs/frps.log"), level="info", max_days=7, disable_print_color=True),
-                auth=AuthConfig(token_file=Path("secrets/token.txt")),
-            ),
-        )
-        dump_yaml_model(node, instance_dir / "node.yaml")
+        node_payload = config_deep_merge(node_payload, {"client": {"user": instance_name}})
+    node = NODE_CONFIG_ADAPTER.validate_python(node_payload)
+    dump_yaml_model(node, instance_dir / "node.yaml")
 
-    (instance_dir / "secrets" / "token.txt.example").write_text(f"{PLACEHOLDER_TOKEN}\n", encoding="utf-8")
+    proxies = ProxyFile.model_validate(
+        config_deep_merge(
+            load_proxy_file_defaults(),
+            load_scaffold_proxy_file_overrides(),
+        )
+    )
+    dump_yaml_model(proxies, instance_dir / "proxies.yaml")
+
+    (instance_dir / "secrets" / "token.txt.example").write_text(load_scaffold_token_example(), encoding="utf-8")
     return instance_dir
-

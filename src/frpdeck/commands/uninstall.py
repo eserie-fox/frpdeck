@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, ConfigValidationError, PermissionOperationError
+from frpdeck.logging import instance_logging_context
 from frpdeck.services.uninstall import UninstallReport, uninstall_instance
 
 
@@ -19,7 +20,8 @@ def register(app: typer.Typer) -> None:
         """Remove installed artifacts for an instance."""
         instance_dir = instance.resolve()
         try:
-            report = uninstall_instance(instance_dir, purge=purge)
+            with instance_logging_context(instance_dir):
+                report = uninstall_instance(instance_dir, purge=purge)
         except (ConfigLoadError, ConfigValidationError, PermissionOperationError, CommandExecutionError) as exc:
             typer.echo(f"ERROR: uninstall failed: {exc}")
             raise typer.Exit(code=1) from exc

@@ -176,7 +176,7 @@ def _auth_context(auth: AuthConfig, instance_dir: Path) -> dict[str, str | None]
 def _log_context(log: FrpLogConfig, instance_dir: Path) -> dict[str, str | int | bool | None]:
     return {
         "to": str(resolve_path_from_instance(log.to, instance_dir)) if log.to else None,
-        "level": log.level,
+        "level": log.level.value,
         "max_days": log.max_days,
         "disable_print_color": log.disable_print_color,
     }

@@ -5,27 +5,31 @@ import pytest
 from typer.testing import CliRunner
 
 from frpdeck.cli import app
-from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig
-from frpdeck.domain.state import ClientNodeConfig
-from frpdeck.domain.systemd import ServiceConfig
 from frpdeck.storage.dump import dump_yaml_model
+from tests.support import build_client_node
 
 
 RUNNER = CliRunner()
 
 
-def _write_instance(instance_dir: Path, *, runtime_dir: str = "runtime/run") -> None:
+def _write_instance(
+    instance_dir: Path,
+    *,
+    client_log_to: str = "runtime/logs/frpc.log",
+    frpdeck_log_path: str = "state/logs/frpdeck.log",
+) -> None:
     dump_yaml_model(
-        ClientNodeConfig(
+        build_client_node(
             instance_name="demo-client",
-            service=ServiceConfig(service_name="demo-client-frpc"),
-            client=ClientCommonConfig(server_addr="example.com", server_port=7000, auth=AuthConfig(token="secret")),
-            paths={
-                "install_dir": "runtime/bin",
-                "config_root": "runtime/config",
-                "log_dir": "runtime/logs",
-                "runtime_dir": runtime_dir,
-                "systemd_unit_dir": "systemd",
+            service_name="demo-client-frpc",
+            overrides={
+                "paths": {
+                    "install_dir": "runtime/bin",
+                    "config_root": "runtime/config",
+                    "systemd_unit_dir": "systemd",
+                },
+                "frpdeck_logging": {"file_path": frpdeck_log_path},
+                "client": {"log": {"to": client_log_to}},
             },
         ),
         instance_dir / "node.yaml",
@@ -38,7 +42,7 @@ def _write_instance(instance_dir: Path, *, runtime_dir: str = "runtime/run") -> 
     (instance_dir / "runtime" / "config").mkdir(parents=True, exist_ok=True)
     (instance_dir / "runtime" / "config" / "frpc.toml").write_text("bindPort = 7000\n", encoding="utf-8")
     (instance_dir / "runtime" / "logs").mkdir(parents=True, exist_ok=True)
-    (instance_dir / "runtime" / "run").mkdir(parents=True, exist_ok=True)
+    (instance_dir / "state" / "logs").mkdir(parents=True, exist_ok=True)
     (instance_dir / "rendered").mkdir(parents=True, exist_ok=True)
     (instance_dir / "state").mkdir(parents=True, exist_ok=True)
     (instance_dir / "backups").mkdir(parents=True, exist_ok=True)
@@ -78,7 +82,7 @@ def test_uninstall_with_purge_removes_instance_directory(monkeypatch, tmp_path: 
 
 
 def test_uninstall_rejects_dangerous_paths(monkeypatch, tmp_path: Path) -> None:
-    _write_instance(tmp_path, runtime_dir="/")
+    _write_instance(tmp_path, client_log_to="/frpc.log")
 
     monkeypatch.setattr("frpdeck.services.uninstall.command_exists", lambda command: False)
 

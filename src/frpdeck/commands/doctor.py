@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from frpdeck.logging import instance_logging_context
 from frpdeck.services.doctor import run_doctor
 from frpdeck.storage.load import load_node_config
 
@@ -18,7 +19,11 @@ def register(app: typer.Typer) -> None:
         """Run environment and instance diagnostics."""
         instance_dir = instance.resolve() if instance is not None else None
         node = load_node_config(instance_dir) if instance_dir and (instance_dir / "node.yaml").exists() else None
-        checks = run_doctor(instance_dir, node)
+        if instance_dir is not None and node is not None:
+            with instance_logging_context(instance_dir, node=node):
+                checks = run_doctor(instance_dir, node)
+        else:
+            checks = run_doctor(instance_dir, node)
         failed = False
         for check in checks:
             status = "OK" if check.ok else "FAIL"

@@ -4,13 +4,11 @@ import tarfile
 from pathlib import Path
 
 from frpdeck.domain.enums import Role
-from frpdeck.domain.install import BinaryConfig
-from frpdeck.domain.state import ClientNodeConfig
-from frpdeck.domain.systemd import ServiceConfig
-from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig
 from frpdeck.services.installer import _version_from_archive_name
 from frpdeck.services.release_checker import get_release
+from frpdeck.config import load_scaffold_instance_layout
 from frpdeck.services.scaffold import scaffold_instance
+from tests.support import build_binary_config
 
 
 class _FakeResponse:
@@ -43,7 +41,7 @@ def test_get_release_uses_pinned_tag_endpoint(monkeypatch) -> None:
 
     monkeypatch.setattr("frpdeck.services.release_checker.urlopen", fake_urlopen)
 
-    release = get_release(BinaryConfig(version="v0.65.0"))
+    release = get_release(build_binary_config(overrides={"version": "v0.65.0"}))
 
     assert seen_urls == ["https://api.github.com/repos/fatedier/frp/releases/tags/v0.65.0"]
     assert release.version == "0.65.0"
@@ -61,3 +59,11 @@ def test_scaffold_uses_runtime_log_paths(tmp_path: Path) -> None:
     content = (instance_dir / "node.yaml").read_text(encoding="utf-8")
 
     assert "runtime/logs/frpc.log" in content
+
+
+def test_scaffold_creates_directories_from_layout_resource(tmp_path: Path) -> None:
+    instance_dir = scaffold_instance(tmp_path, Role.CLIENT, "demo-client")
+    layout = load_scaffold_instance_layout()
+
+    for relative in layout.directories_for_role(Role.CLIENT):
+        assert (instance_dir / relative).is_dir()

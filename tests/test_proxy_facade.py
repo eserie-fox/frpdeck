@@ -1,22 +1,21 @@
 from pathlib import Path
 import json
+import logging
 
-from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig
-from frpdeck.domain.server_config import ServerCommonConfig
-from frpdeck.domain.state import ClientNodeConfig, ServerNodeConfig
-from frpdeck.domain.systemd import ServiceConfig
 from frpdeck.facade.proxy_facade import ProxyFacade
 from frpdeck.storage.dump import dump_yaml_model
+from tests.support import build_client_node, build_server_node
 
 
-def _write_client_instance(instance_dir: Path, proxies: list[object] | None = None) -> None:
+def _write_client_instance(
+    instance_dir: Path,
+    proxies: list[object] | None = None,
+    *,
+    node_overrides: dict[str, object] | None = None,
+) -> None:
     dump_yaml_model(
-        ClientNodeConfig(
-            instance_name="client-demo",
-            service=ServiceConfig(service_name="client-demo-frpc"),
-            client=ClientCommonConfig(server_addr="example.com", server_port=7000, auth=AuthConfig(token="secret")),
-        ),
+        build_client_node(overrides=node_overrides),
         instance_dir / "node.yaml",
     )
     dump_yaml_model(ProxyFile(proxies=list(proxies or [])), instance_dir / "proxies.yaml")
@@ -24,11 +23,7 @@ def _write_client_instance(instance_dir: Path, proxies: list[object] | None = No
 
 def _write_server_instance(instance_dir: Path) -> None:
     dump_yaml_model(
-        ServerNodeConfig(
-            instance_name="server-demo",
-            service=ServiceConfig(service_name="server-demo-frps"),
-            server=ServerCommonConfig(auth=AuthConfig(token="secret")),
-        ),
+        build_server_node(),
         instance_dir / "node.yaml",
     )
     dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
@@ -86,3 +81,34 @@ def test_preview_returns_uniform_data_and_apply_rejects_server_role(tmp_path: Pa
 
     assert apply_result.ok is False
     assert apply_result.error_code == "unsupported_role"
+
+
+def test_facade_applies_instance_logging_for_bound_calls(tmp_path: Path) -> None:
+    _write_client_instance(
+        tmp_path,
+        [],
+        node_overrides={
+            "frpdeck_logging": {
+                "level": "INFO",
+                "stream": "none",
+                "file_path": "state/logs/frpdeck.log",
+            }
+        },
+    )
+
+    class LoggingManager:
+        def list_proxies(self, instance_dir: Path) -> list[object]:
+            logging.getLogger("frpdeck.facade-test").info("facade logging active")
+            return []
+
+    result = ProxyFacade(manager=LoggingManager()).list_proxies(tmp_path)
+
+    assert result.ok is True
+    assert (tmp_path / "state" / "logs" / "frpdeck.log").is_symlink()
+
+
+def test_facade_returns_config_load_failed_when_instance_logging_init_fails(tmp_path: Path) -> None:
+    result = ProxyFacade().list_proxies(tmp_path)
+
+    assert result.ok is False
+    assert result.error_code == "config_load_failed"

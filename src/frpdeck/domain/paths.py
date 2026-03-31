@@ -14,13 +14,11 @@ class PathConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    install_dir: Path = Path("runtime/bin")
-    config_root: Path = Path("runtime/config")
-    log_dir: Path = Path("runtime/logs")
-    runtime_dir: Path = Path("runtime/run")
-    systemd_unit_dir: Path = Path("/etc/systemd/system")
+    install_dir: Path
+    config_root: Path
+    systemd_unit_dir: Path
 
-    @field_validator("install_dir", "config_root", "log_dir", "runtime_dir", "systemd_unit_dir", mode="before")
+    @field_validator("install_dir", "config_root", "systemd_unit_dir", mode="before")
     @classmethod
     def _coerce_path(cls, value: str | Path) -> Path:
         return Path(value)
@@ -30,8 +28,6 @@ class PathConfig(BaseModel):
         return ResolvedPathConfig(
             install_dir=_resolve_path(self.install_dir, instance_dir),
             config_root=_resolve_path(self.config_root, instance_dir),
-            log_dir=_resolve_path(self.log_dir, instance_dir),
-            runtime_dir=_resolve_path(self.runtime_dir, instance_dir),
             systemd_unit_dir=_resolve_path(self.systemd_unit_dir, instance_dir),
         )
 
@@ -39,7 +35,7 @@ class PathConfig(BaseModel):
 class ResolvedPathConfig(PathConfig):
     """Absolute runtime paths."""
 
-    @field_validator("install_dir", "config_root", "log_dir", "runtime_dir", "systemd_unit_dir")
+    @field_validator("install_dir", "config_root", "systemd_unit_dir")
     @classmethod
     def _ensure_absolute(cls, value: Path) -> Path:
         if not value.is_absolute():

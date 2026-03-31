@@ -8,6 +8,7 @@ import typer
 
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import ConfigValidationError
+from frpdeck.logging import instance_logging_context
 from frpdeck.services.verifier import validate_instance
 from frpdeck.storage.load import load_node_config, load_proxy_file
 
@@ -20,8 +21,9 @@ def register(app: typer.Typer) -> None:
         """Validate source configuration."""
         instance_dir = instance.resolve()
         node = load_node_config(instance_dir)
-        proxies = load_proxy_file(instance_dir) if node.role == Role.CLIENT else None
-        errors = validate_instance(instance_dir, node, proxies)
+        with instance_logging_context(instance_dir, node=node):
+            proxies = load_proxy_file(instance_dir) if node.role == Role.CLIENT else None
+            errors = validate_instance(instance_dir, node, proxies)
         if errors:
             for error in errors:
                 typer.echo(f"ERROR: {error}")

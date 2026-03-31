@@ -1,21 +1,16 @@
 from pathlib import Path
 
-from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig
 from frpdeck.domain.errors import CommandExecutionError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
-from frpdeck.domain.state import ApplyState, ClientNodeConfig
-from frpdeck.domain.systemd import ServiceConfig
+from frpdeck.domain.state import ApplyState
 from frpdeck.services.status_service import StatusService
 from frpdeck.storage.dump import dump_json_data, dump_yaml_model
+from tests.support import build_client_node
 
 
 def _write_client_instance(instance_dir: Path) -> None:
     dump_yaml_model(
-        ClientNodeConfig(
-            instance_name="client-demo",
-            service=ServiceConfig(service_name="client-demo-frpc"),
-            client=ClientCommonConfig(server_addr="example.com", server_port=7000, auth=AuthConfig(token="secret")),
-        ),
+        build_client_node(),
         instance_dir / "node.yaml",
     )
     dump_yaml_model(
@@ -78,3 +73,17 @@ def test_get_instance_status_gracefully_degrades_when_systemctl_unavailable(monk
     assert status.errors == []
     assert status.service_status.available is False
     assert any("service status unavailable" in warning for warning in status.warnings)
+
+
+def test_get_instance_status_uses_logical_instance_name_not_directory_name(tmp_path: Path) -> None:
+    instance_dir = tmp_path / "physical-dir"
+    dump_yaml_model(
+        build_client_node(instance_name="logical-instance"),
+        instance_dir / "node.yaml",
+    )
+    dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
+
+    status = StatusService().get_instance_status(instance_dir)
+
+    assert status.instance == str(instance_dir.resolve())
+    assert status.instance_name == "logical-instance"

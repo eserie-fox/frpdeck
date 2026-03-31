@@ -15,12 +15,12 @@ class BinaryConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    arch: str = "amd64"
-    os: str = "linux"
-    channel: InstallChannel = InstallChannel.GITHUB
+    arch: str
+    os: str
+    channel: InstallChannel
     version: str | None = None
     local_archive: Path | None = None
-    install_strategy: str | None = "replace"
+    install_strategy: str | None
 
     @field_validator("local_archive", mode="before")
     @classmethod
