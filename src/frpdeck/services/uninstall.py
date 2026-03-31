@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import shutil
 
+from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import ConfigValidationError, PermissionOperationError
+from frpdeck.domain.paths import resolve_path_from_instance
+from frpdeck.domain.state import NodeBase
 from frpdeck.services.runtime import command_exists
 from frpdeck.services.systemd_manager import daemon_reload, disable_service, remove_unit_file, stop_service
 from frpdeck.storage.load import load_node_config
@@ -75,7 +78,13 @@ def uninstall_instance(instance_dir: Path, purge: bool = False) -> UninstallRepo
     else:
         report.warnings.append("systemctl not available; skipped stop/disable/daemon-reload")
 
-    cleanup_paths = _runtime_cleanup_paths(instance, paths.install_dir, paths.config_root, paths.log_dir, paths.runtime_dir)
+    cleanup_paths = _runtime_cleanup_paths(
+        instance,
+        paths.install_dir,
+        paths.config_root,
+        _frp_log_parent_dirs(instance, node),
+        _frpdeck_log_parent_dir(instance, node),
+    )
     install_cleanup_target, install_warning = _resolve_install_cleanup_target(
         instance,
         paths.install_dir,
@@ -128,18 +137,65 @@ def uninstall_instance(instance_dir: Path, purge: bool = False) -> UninstallRepo
     return report
 
 
-def _runtime_cleanup_paths(instance: Path, install_dir: Path, config_root: Path, log_dir: Path, runtime_dir: Path) -> list[Path]:
-    candidates = [install_dir, config_root, log_dir, runtime_dir]
+def _runtime_cleanup_paths(
+    instance: Path,
+    install_dir: Path,
+    config_root: Path,
+    frp_log_dirs: list[Path],
+    frpdeck_log_dir: Path | None,
+) -> list[Path]:
+    candidates = [install_dir, config_root, *frp_log_dirs]
+    if frpdeck_log_dir is not None:
+        candidates.append(frpdeck_log_dir)
     unique_paths: list[Path] = []
     for path in candidates:
         if any(_is_relative_to(path, existing) for existing in unique_paths):
             continue
         unique_paths = [existing for existing in unique_paths if not _is_relative_to(existing, path)]
         unique_paths.append(path)
+    unique_paths = _collapse_shared_parent_siblings(unique_paths, instance)
     shared_parent = _shared_parent(unique_paths)
     if shared_parent is not None and shared_parent != instance:
         return [shared_parent]
     unique_paths.sort(key=lambda item: (0 if _is_relative_to(item, instance) else 1, len(item.parts)))
+    return unique_paths
+
+
+def _frp_log_parent_dirs(instance_dir: Path, node: NodeBase) -> list[Path]:
+    log_target = node.client.log.to if node.role == Role.CLIENT else node.server.log.to
+    if log_target is None:
+        return []
+    return [resolve_path_from_instance(log_target, instance_dir).parent]
+
+
+def _frpdeck_log_parent_dir(instance_dir: Path, node: NodeBase) -> Path | None:
+    log_path = node.frpdeck_logging.resolved_log_path(instance_dir)
+    if log_path is None:
+        return None
+    return log_path.parent
+
+
+def _collapse_shared_parent_siblings(paths: list[Path], instance: Path) -> list[Path]:
+    grouped: dict[Path, list[Path]] = {}
+    for path in paths:
+        grouped.setdefault(path.parent, []).append(path)
+
+    collapsed: list[Path] = []
+    for path in paths:
+        siblings = grouped[path.parent]
+        if len(siblings) > 1 and path.parent != instance and _is_relative_to(path.parent, instance):
+            if path.parent not in collapsed:
+                collapsed.append(path.parent)
+            continue
+        if path not in collapsed:
+            collapsed.append(path)
+
+    unique_paths: list[Path] = []
+    for path in collapsed:
+        if any(_is_relative_to(path, existing) for existing in unique_paths):
+            continue
+        unique_paths = [existing for existing in unique_paths if not _is_relative_to(existing, path)]
+        unique_paths.append(path)
     return unique_paths
 
 

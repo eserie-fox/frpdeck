@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.0
+
+- Converged configuration further around the instance-centric model, including clearer defaults, scaffold resources, and packaged instance skeleton definitions.
+- Clarified the boundary between FRP log settings and `frpdeck`'s own logging, with stricter enum-based modeling and explicit load-versus-apply logging helpers.
+- Switched scaffold generation fully to operational-defaults-plus-overrides resources and tightened config resource packaging expectations.
+- Improved repository consistency across CLI, MCP, docs, tests, and release metadata in preparation for the 1.1.0 release.
+
 ## 1.0.1
 
 - Polished release packaging and metadata for the 1.0.1 patch release.

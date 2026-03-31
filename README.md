@@ -37,6 +37,16 @@ python3.11 -m venv .venv
 python -m pip install -e '.[dev]'
 ```
 
+## Documentation
+
+Key design notes now live under `docs/`:
+
+- [`docs/architecture.md`](docs/architecture.md): layer boundaries and dependency direction
+- [`docs/configuration.md`](docs/configuration.md): instance config shape, defaults, path resolution, and logging semantics
+- [`docs/development.md`](docs/development.md): local development, tests, packaging, and MCP testing
+- [`docs/release.md`](docs/release.md): version bump, build, and tag/publish checklist
+- [`CHANGELOG.md`](CHANGELOG.md): release history
+
 ## Features
 
 - `init` creates a new client or server instance directory.
@@ -79,6 +89,8 @@ ${EDITOR:-vi} ./my-client/proxies.yaml
 mkdir -p ./my-client/secrets
 printf 'replace-me\n' > ./my-client/secrets/token.txt
 ```
+
+`instance_name` is the logical identity stored in `node.yaml`. It may differ from the directory name; status, service naming defaults, and audit data use `instance_name`, not `instance_dir.name`.
 
 Validate the source configuration:
 
@@ -231,3 +243,6 @@ Repository fixtures now live under `tests/fixtures/instances/`. They exist for t
 - Relative paths in YAML are resolved against the instance directory, not the shell working directory.
 - Rendered systemd units always use absolute runtime paths.
 - By default, runtime files are installed under `runtime/` inside the instance directory, while the systemd unit is written to `/etc/systemd/system`.
+- FRP's own logs are controlled by `client.log` or `server.log` and are written into generated frpc/frps config.
+- `frpdeck`'s own logs are configured by top-level `frpdeck_logging` inside `node.yaml`.
+- Instance configuration files remain `node.yaml` and `proxies.yaml`. There is no separate runtime config file for frpdeck in the current design.

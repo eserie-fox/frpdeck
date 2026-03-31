@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "frpdeck"
-version = "1.0.1"
+version = "1.1.0"
 description = "Lightweight FRP deployment and maintenance CLI with structured proxy management, audit logging, and MCP support for LLM-assisted operations."
 readme = "README.md"
 license = "Apache-2.0"
@@ -56,7 +56,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-frpdeck = ["templates/**/*.j2"]
+frpdeck = ["templates/**/*.j2", "config_defaults/**/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -193,8 +193,8 @@ class StatusService:
             warnings.append(f"frpc binary not found at {paths.binary_path(node.role)}")
             return ClientRuntimeStatus(available=False, note=f"frpc binary not found at {paths.binary_path(node.role)}")
         if not paths.config_path(node.role).exists():
-            warnings.append(f"runtime config not found at {paths.config_path(node.role)}")
-            return ClientRuntimeStatus(available=False, note=f"runtime config not found at {paths.config_path(node.role)}")
+            warnings.append(f"FRP runtime config not found at {paths.config_path(node.role)}")
+            return ClientRuntimeStatus(available=False, note=f"FRP runtime config not found at {paths.config_path(node.role)}")
         try:
             result = run_command(
                 [str(paths.binary_path(node.role)), "status", "-c", str(paths.config_path(node.role))],

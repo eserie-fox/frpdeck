@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from frpdeck.domain.versioning import compare_versions, normalize_version
+from frpdeck.logging import instance_logging_context
 from frpdeck.services.installer import read_current_version
 from frpdeck.services.release_checker import get_release
 from frpdeck.storage.load import load_node_config
@@ -20,21 +21,22 @@ def register(app: typer.Typer) -> None:
         """Check whether a newer binary is available."""
         instance_dir = instance.resolve()
         node = load_node_config(instance_dir)
-        current = read_current_version(instance_dir)
-        if node.binary.version:
-            target = normalize_version(node.binary.version) or node.binary.version
-            mode = "pinned"
-        else:
-            release = get_release(node.binary)
-            target = release.version
-            mode = "latest"
-        comparison = compare_versions(current, target)
-        if comparison is None:
-            update_available = "unknown"
-            comparison_note = "unable to compare current_version and target_version reliably"
-        else:
-            update_available = "true" if comparison < 0 else "false"
-            comparison_note = None
+        with instance_logging_context(instance_dir, node=node):
+            current = read_current_version(instance_dir)
+            if node.binary.version:
+                target = normalize_version(node.binary.version) or node.binary.version
+                mode = "pinned"
+            else:
+                release = get_release(node.binary)
+                target = release.version
+                mode = "latest"
+            comparison = compare_versions(current, target)
+            if comparison is None:
+                update_available = "unknown"
+                comparison_note = "unable to compare current_version and target_version reliably"
+            else:
+                update_available = "true" if comparison < 0 else "false"
+                comparison_note = None
         typer.echo(f"current_version: {current or 'unknown'}")
         typer.echo(f"target_version: {target}")
         typer.echo(f"mode: {mode}")

@@ -1,23 +1,12 @@
 from pathlib import Path
 
-from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
-from frpdeck.domain.server_config import ServerCommonConfig
-from frpdeck.domain.state import ClientNodeConfig, ServerNodeConfig
-from frpdeck.domain.systemd import ServiceConfig
 from frpdeck.services.renderer import render_instance
+from tests.support import build_client_node, build_server_node
 
 
 def test_client_render_outputs_main_and_proxy_files(tmp_path: Path) -> None:
-    node = ClientNodeConfig(
-        instance_name="client-demo",
-        service=ServiceConfig(service_name="client-demo-frpc"),
-        client=ClientCommonConfig(
-            server_addr="example.com",
-            server_port=7000,
-            auth=AuthConfig(token="secret"),
-        ),
-    )
+    node = build_client_node()
     proxies = ProxyFile(
         proxies=[
             TcpProxyConfig(name="ssh", local_port=22, remote_port=6000),
@@ -33,15 +22,12 @@ def test_client_render_outputs_main_and_proxy_files(tmp_path: Path) -> None:
 
 
 def test_client_render_places_includes_before_first_table(tmp_path: Path) -> None:
-    node = ClientNodeConfig(
-        instance_name="client-demo",
-        service=ServiceConfig(service_name="client-demo-frpc"),
-        client=ClientCommonConfig(
-            server_addr="example.com",
-            server_port=7000,
-            auth=AuthConfig(token="secret"),
-            includes_enabled=True,
-        ),
+    node = build_client_node(
+        overrides={
+            "client": {
+                "includes_enabled": True,
+            }
+        }
     )
 
     summary = render_instance(tmp_path, node, ProxyFile(proxies=[TcpProxyConfig(name="ssh", local_port=22, remote_port=6000)]))
@@ -52,11 +38,7 @@ def test_client_render_places_includes_before_first_table(tmp_path: Path) -> Non
 
 
 def test_server_render_outputs_frps_toml(tmp_path: Path) -> None:
-    node = ServerNodeConfig(
-        instance_name="server-demo",
-        service=ServiceConfig(service_name="server-demo-frps"),
-        server=ServerCommonConfig(auth=AuthConfig(token="secret")),
-    )
+    node = build_server_node()
 
     summary = render_instance(tmp_path, node)
 

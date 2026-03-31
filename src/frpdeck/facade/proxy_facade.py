@@ -20,6 +20,7 @@ from frpdeck.domain.errors import (
 from frpdeck.domain.facade_models import FacadeResult
 from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyConfig, TcpProxyConfig, UdpProxyConfig
 from frpdeck.domain.proxy_management import ApplyReport, PreviewReport, ProxyMutationResult, ValidationReport
+from frpdeck.logging import instance_logging_context
 from frpdeck.services.proxy_manager import ProxyManager
 
 
@@ -33,7 +34,8 @@ class ProxyFacade:
         operation = "list_proxies"
         instance = instance_dir.resolve()
         try:
-            proxies = self._manager.list_proxies(instance)
+            with instance_logging_context(instance):
+                proxies = self._manager.list_proxies(instance)
             return self._success(operation, instance, {"count": len(proxies), "proxies": [self._serialize_proxy(proxy) for proxy in proxies]})
         except Exception as exc:
             return self._error(operation, instance, exc)
@@ -42,7 +44,8 @@ class ProxyFacade:
         operation = "get_proxy"
         instance = instance_dir.resolve()
         try:
-            proxy = self._manager.get_proxy(instance, name)
+            with instance_logging_context(instance):
+                proxy = self._manager.get_proxy(instance, name)
             return self._success(operation, instance, {"proxy": self._serialize_proxy(proxy)})
         except Exception as exc:
             return self._error(operation, instance, exc)
@@ -51,7 +54,8 @@ class ProxyFacade:
         operation = "add_proxy"
         instance = instance_dir.resolve()
         try:
-            result = self._manager.add_proxy(instance, proxy_spec)
+            with instance_logging_context(instance):
+                result = self._manager.add_proxy(instance, proxy_spec)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
@@ -60,7 +64,8 @@ class ProxyFacade:
         operation = "update_proxy"
         instance = instance_dir.resolve()
         try:
-            result = self._manager.update_proxy(instance, name, patch_spec)
+            with instance_logging_context(instance):
+                result = self._manager.update_proxy(instance, name, patch_spec)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
@@ -69,7 +74,8 @@ class ProxyFacade:
         operation = "remove_proxy"
         instance = instance_dir.resolve()
         try:
-            result = self._manager.remove_proxy(instance, name, soft=soft)
+            with instance_logging_context(instance):
+                result = self._manager.remove_proxy(instance, name, soft=soft)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
@@ -78,7 +84,8 @@ class ProxyFacade:
         operation = "enable_proxy"
         instance = instance_dir.resolve()
         try:
-            result = self._manager.enable_proxy(instance, name)
+            with instance_logging_context(instance):
+                result = self._manager.enable_proxy(instance, name)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
@@ -87,7 +94,8 @@ class ProxyFacade:
         operation = "disable_proxy"
         instance = instance_dir.resolve()
         try:
-            result = self._manager.disable_proxy(instance, name)
+            with instance_logging_context(instance):
+                result = self._manager.disable_proxy(instance, name)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
@@ -96,7 +104,8 @@ class ProxyFacade:
         operation = "validate_proxy_set"
         instance = instance_dir.resolve()
         try:
-            report = self._manager.validate_proxy_set(instance)
+            with instance_logging_context(instance):
+                report = self._manager.validate_proxy_set(instance)
             data = self._serialize_validation_report(report)
             if report.ok:
                 return self._success(operation, instance, data, warnings=report.warnings)
@@ -116,7 +125,8 @@ class ProxyFacade:
         operation = "preview_proxy_changes"
         instance = instance_dir.resolve()
         try:
-            report = self._manager.preview_proxy_changes(instance)
+            with instance_logging_context(instance):
+                report = self._manager.preview_proxy_changes(instance)
             data = self._serialize_preview_report(report)
             if report.ok:
                 return self._success(operation, instance, data, warnings=report.warnings)
@@ -136,8 +146,9 @@ class ProxyFacade:
         operation = "apply_proxy_changes"
         instance = instance_dir.resolve()
         try:
-            applied_proxies = [proxy.name for proxy in self._manager.list_proxies(instance) if proxy.enabled]
-            report = self._manager.apply_proxy_changes(instance, reload=reload)
+            with instance_logging_context(instance):
+                applied_proxies = [proxy.name for proxy in self._manager.list_proxies(instance) if proxy.enabled]
+                report = self._manager.apply_proxy_changes(instance, reload=reload)
             data = self._serialize_apply_report(report, applied_proxies)
             if report.ok:
                 return self._success(operation, instance, data, warnings=report.warnings)

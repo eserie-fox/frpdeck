@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from frpdeck.domain.client_config import ClientCommonConfig
 from frpdeck.domain.enums import Role
+from frpdeck.domain.frpdeck_logging import FrpdeckLoggingConfig
 from frpdeck.domain.install import BinaryConfig
 from frpdeck.domain.paths import PathConfig, ResolvedPathConfig
 from frpdeck.domain.server_config import ServerCommonConfig
@@ -23,9 +24,10 @@ class NodeBase(BaseModel):
 
     instance_name: str
     role: Role
-    paths: PathConfig = Field(default_factory=PathConfig)
-    binary: BinaryConfig = Field(default_factory=BinaryConfig)
+    paths: PathConfig
+    binary: BinaryConfig
     service: ServiceConfig
+    frpdeck_logging: FrpdeckLoggingConfig
 
     def resolved_paths(self, instance_dir: Path) -> ResolvedPathConfig:
         return self.paths.resolve(instance_dir)

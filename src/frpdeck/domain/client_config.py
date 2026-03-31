@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from frpdeck.domain.enums import TransportProtocol
+from frpdeck.domain.enums import FrpLogLevel, TransportProtocol
 
 
 class FrpLogConfig(BaseModel):
@@ -15,10 +15,10 @@ class FrpLogConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    to: Path | None = None
-    level: str = "info"
-    max_days: int = 7
-    disable_print_color: bool = True
+    to: Path | None
+    level: FrpLogLevel
+    max_days: int
+    disable_print_color: bool
 
     @field_validator("to", mode="before")
     @classmethod
@@ -33,7 +33,7 @@ class AuthConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    method: Literal["token"] = "token"
+    method: Literal["token"]
     token: str | None = None
     token_file: Path | None = None
 
@@ -56,8 +56,8 @@ class WebServerConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    addr: str | None = "127.0.0.1"
-    port: int | None = 7400
+    addr: str | None
+    port: int | None
 
 
 class ClientCommonConfig(BaseModel):
@@ -68,9 +68,9 @@ class ClientCommonConfig(BaseModel):
     user: str | None = None
     server_addr: str
     server_port: int = Field(ge=1, le=65535)
-    transport_protocol: TransportProtocol = TransportProtocol.TCP
-    web_server: WebServerConfig = Field(default_factory=WebServerConfig)
-    login_fail_exit: bool = False
-    log: FrpLogConfig = Field(default_factory=FrpLogConfig)
-    auth: AuthConfig = Field(default_factory=AuthConfig)
-    includes_enabled: bool = True
+    transport_protocol: TransportProtocol
+    web_server: WebServerConfig
+    login_fail_exit: bool
+    log: FrpLogConfig
+    auth: AuthConfig
+    includes_enabled: bool

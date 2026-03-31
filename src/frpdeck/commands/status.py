@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from frpdeck.commands.output import emit_json_envelope
+from frpdeck.logging import instance_logging_context
 from frpdeck.services.status_service import StatusService
 
 
@@ -18,7 +19,8 @@ def register(app: typer.Typer) -> None:
     ) -> None:
         """Show instance and service status."""
         instance_dir = instance.resolve()
-        summary = StatusService().get_instance_status(instance_dir)
+        with instance_logging_context(instance_dir):
+            summary = StatusService().get_instance_status(instance_dir)
         if json_output:
             emit_json_envelope(
                 command="status",

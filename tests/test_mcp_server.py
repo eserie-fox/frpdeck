@@ -1,29 +1,25 @@
 from pathlib import Path
 import json
+import logging
 
 import anyio
 from mcp.server.fastmcp import FastMCP
+import pytest
 
-from frpdeck.domain.client_config import AuthConfig, ClientCommonConfig
+from frpdeck.domain.errors import ConfigLoadError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
-from frpdeck.domain.server_config import ServerCommonConfig
-from frpdeck.domain.state import ClientNodeConfig, ServerNodeConfig
-from frpdeck.domain.systemd import ServiceConfig
 from frpdeck.domain.proxy_management import ApplyReport
 from frpdeck.mcp.resources import instance_status_resource, proxy_runtime_status_resource
 from frpdeck.mcp.server import create_mcp_server, main
 from frpdeck.mcp.tools import apply_proxy_changes_tool, get_proxy_tool, list_proxies_tool, preview_proxy_changes_tool
 from frpdeck.services.renderer import RenderSummary
 from frpdeck.storage.dump import dump_json_data, dump_yaml_model
+from tests.support import build_client_node, build_server_node
 
 
-def _write_client_instance(instance_dir: Path) -> None:
+def _write_client_instance(instance_dir: Path, *, node_overrides: dict[str, object] | None = None) -> None:
     dump_yaml_model(
-        ClientNodeConfig(
-            instance_name="client-demo",
-            service=ServiceConfig(service_name="client-demo-frpc"),
-            client=ClientCommonConfig(server_addr="example.com", server_port=7000, auth=AuthConfig(token="secret")),
-        ),
+        build_client_node(overrides=node_overrides),
         instance_dir / "node.yaml",
     )
     dump_yaml_model(
@@ -52,11 +48,7 @@ def _write_client_instance(instance_dir: Path) -> None:
 
 def _write_server_instance(instance_dir: Path) -> None:
     dump_yaml_model(
-        ServerNodeConfig(
-            instance_name="server-demo",
-            service=ServiceConfig(service_name="server-demo-frps"),
-            server=ServerCommonConfig(auth=AuthConfig(token="secret")),
-        ),
+        build_server_node(),
         instance_dir / "node.yaml",
     )
     dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
@@ -268,6 +260,65 @@ def test_mcp_main_accepts_instance_dir_without_stdout(monkeypatch, tmp_path: Pat
     captured = capsys.readouterr()
     assert captured.out == ""
     assert calls
+
+
+def test_mcp_main_uses_instance_logging_without_stdout(monkeypatch, tmp_path: Path, capsys) -> None:
+    _write_client_instance(
+        tmp_path,
+        node_overrides={
+            "frpdeck_logging": {
+                "level": "INFO",
+                "stream": "none",
+                "file_path": "state/logs/frpdeck.log",
+            }
+        },
+    )
+    calls: list[FastMCP] = []
+
+    def fake_run(self: FastMCP) -> None:
+        logging.getLogger("frpdeck.mcp").info("bound instance logging active")
+        calls.append(self)
+
+    monkeypatch.setattr("frpdeck.mcp.server.FastMCP.run", fake_run)
+
+    main(["--instance-dir", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert calls
+    assert (tmp_path / "state" / "logs" / "frpdeck.log").is_symlink()
+
+
+def test_mcp_main_bound_mode_fails_fast_on_invalid_instance_logging(monkeypatch, tmp_path: Path) -> None:
+    calls: list[FastMCP] = []
+
+    def fake_run(self: FastMCP) -> None:
+        calls.append(self)
+
+    monkeypatch.setattr("frpdeck.mcp.server.FastMCP.run", fake_run)
+    (tmp_path / "node.yaml").write_text(
+        "\n".join(
+            [
+                "instance_name: demo-client",
+                "role: client",
+                "service:",
+                "  service_name: demo-frpc",
+                "frpdeck_logging:",
+                "  level: WARN",
+                "client:",
+                "  server_addr: example.com",
+                "  auth:",
+                "    token: secret",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigLoadError, match="invalid node config"):
+        main(["--instance-dir", str(tmp_path)])
+
+    assert not calls
 
 
 def test_mcp_write_audit_marks_actor_as_mcp(tmp_path: Path) -> None:

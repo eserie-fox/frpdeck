@@ -40,7 +40,8 @@ def recent_command(
         return
 
     if not entries:
-        if audit_log_path(instance_dir).exists():
+        has_audit_log = audit_log_path(instance_dir).exists()
+        if has_audit_log:
             typer.echo("no audit entries found")
         else:
             typer.echo("no audit log found")

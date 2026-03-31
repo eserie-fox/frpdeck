@@ -13,6 +13,7 @@ import typer
 
 from frpdeck.services.audit import build_actor, record_audit_event
 from frpdeck.storage.file_lock import instance_lock
+from frpdeck.storage.load import load_node_config
 
 
 WRAPPER_FILENAME = "start-mcp-stdio.sh"
@@ -124,6 +125,7 @@ def _record_wrapper_audit(
         record_audit_event(
             instance_dir,
             operation=operation,
+            instance_name=_instance_name(instance_dir),
             target=target,
             before=before,
             after=after,
@@ -202,3 +204,10 @@ def uninstall_stdio_wrapper_command(
     typer.echo(f"Removed stdio wrapper: {script_path}")
     if warning is not None:
         typer.echo(f"WARNING: {warning}")
+
+
+def _instance_name(instance_dir: Path) -> str | None:
+    try:
+        return load_node_config(instance_dir).instance_name
+    except Exception:
+        return None

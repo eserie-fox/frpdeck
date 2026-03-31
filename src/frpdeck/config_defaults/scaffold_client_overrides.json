@@ -1,0 +1,8 @@
+{
+  "client": {
+    "server_addr": "PLEASE_FILL_SERVER_ADDR",
+    "auth": {
+      "token_file": "secrets/token.txt"
+    }
+  }
+}

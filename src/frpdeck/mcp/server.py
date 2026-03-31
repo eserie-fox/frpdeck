@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 from typing import Sequence
 
 from mcp.server.fastmcp import FastMCP
 
 from frpdeck.facade.proxy_facade import ProxyFacade
+from frpdeck.logging import configure_default_logging, configure_instance_logging
 from frpdeck.mcp.resources import register_resources
 from frpdeck.mcp.serialization import resolve_instance_dir
 from frpdeck.mcp.tools import register_tools
 from frpdeck.services.status_service import StatusService
+from frpdeck.storage.load import load_node_config
 
 
 SERVER_NAME = "frpdeck"
@@ -50,6 +53,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> None:
     """Run the stdio MCP server."""
     args = parse_args(argv)
+    if args.instance_dir is not None:
+        instance_dir = resolve_instance_dir(args.instance_dir)
+        node = load_node_config(instance_dir)
+        configure_instance_logging(instance_dir, node)
+    else:
+        configure_default_logging()
+    logging.getLogger("frpdeck.mcp").debug("starting MCP server")
     create_mcp_server(instance_dir=args.instance_dir).run()
 
 

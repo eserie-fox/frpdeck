@@ -9,7 +9,9 @@ import shutil
 import tarfile
 import tempfile
 
+from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import ConfigValidationError, PermissionOperationError
+from frpdeck.domain.paths import resolve_path_from_instance
 from frpdeck.domain.state import InstallState, NodeBase
 from frpdeck.domain.versioning import normalize_version
 from frpdeck.storage.dump import dump_json_data
@@ -86,16 +88,16 @@ def sync_rendered_to_runtime(instance_dir: Path, node: NodeBase) -> Path:
     """Copy rendered config artifacts into configured runtime paths."""
     paths = node.resolved_paths(instance_dir)
     rendered_dir = instance_dir / "rendered"
-    rendered_main = rendered_dir / ("frpc.toml" if node.role.value == "client" else "frps.toml")
+    rendered_main = rendered_dir / ("frpc.toml" if node.role == Role.CLIENT else "frps.toml")
     rendered_proxies = rendered_dir / "proxies.d"
 
     try:
         paths.config_root.mkdir(parents=True, exist_ok=True)
-        paths.log_dir.mkdir(parents=True, exist_ok=True)
-        paths.runtime_dir.mkdir(parents=True, exist_ok=True)
+        for log_dir in _runtime_log_dirs(instance_dir, node):
+            log_dir.mkdir(parents=True, exist_ok=True)
     except PermissionError as exc:
         raise PermissionOperationError(
-            f"cannot create runtime directories under {paths.config_root.parent}; use sudo or adjust paths"
+            "cannot create runtime configuration or FRP log directories; use sudo or adjust configured paths"
         ) from exc
 
     target_main = paths.config_path(node.role)
@@ -132,3 +134,13 @@ def _version_from_archive_name(archive_name: str) -> str:
     if not match:
         return "unknown"
     return normalize_version(match.group("version")) or "unknown"
+
+
+def _runtime_log_dirs(instance_dir: Path, node: NodeBase) -> list[Path]:
+    if node.role == Role.CLIENT:
+        log_target = node.client.log.to
+    else:
+        log_target = node.server.log.to
+    if log_target is None:
+        return []
+    return [resolve_path_from_instance(log_target, instance_dir).parent]

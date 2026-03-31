@@ -1,0 +1,21 @@
+{
+  "proxies": [
+    {
+      "name": "sample_tcp",
+      "type": "tcp",
+      "description": "Example TCP proxy",
+      "local_ip": "127.0.0.1",
+      "local_port": 22,
+      "remote_port": 6000,
+      "enabled": true,
+      "annotations": {},
+      "metadatas": {},
+      "transport": {
+        "use_encryption": false,
+        "use_compression": false,
+        "bandwidth_limit": null,
+        "bandwidth_limit_mode": null
+      }
+    }
+  ]
+}
