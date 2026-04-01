@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from frpdeck.commands._download_progress import CliDownloadProgressReporter
 from frpdeck.domain.errors import CommandExecutionError, ConfigValidationError, DownloadError, PermissionOperationError
 from frpdeck.logging import instance_logging_context
 from frpdeck.services.installer import install_from_archive, install_from_release
@@ -27,6 +28,7 @@ def register(app: typer.Typer) -> None:
         with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
             node = load_node_config(instance_dir)
             with instance_logging_context(instance_dir, node=node):
+                download_reporter = CliDownloadProgressReporter(typer.echo)
                 try:
                     if archive is not None:
                         version = install_from_archive(instance_dir, node, archive.resolve(), node.binary.version)
@@ -36,7 +38,14 @@ def register(app: typer.Typer) -> None:
                         version = install_from_archive(instance_dir, node, resolved, node.binary.version)
                     else:
                         release = get_release(node.binary)
-                        version = install_from_release(instance_dir, node, release)
+                        version = install_from_release(
+                            instance_dir,
+                            node,
+                            release,
+                            progress=download_reporter.update,
+                            download_started=download_reporter.start,
+                            download_finished=download_reporter.finish,
+                        )
                     if restart_after:
                         restart_service(node.service.service_name)
                 except (CommandExecutionError, ConfigValidationError, DownloadError, PermissionOperationError) as exc:

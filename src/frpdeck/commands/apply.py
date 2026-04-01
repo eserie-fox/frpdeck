@@ -7,6 +7,7 @@ from typing import Callable, TypeVar
 
 import typer
 
+from frpdeck.commands._download_progress import CliDownloadProgressReporter
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, FrpdeckError, PermissionOperationError
 from frpdeck.domain.state import ApplyState
@@ -44,6 +45,7 @@ def register(app: typer.Typer) -> None:
     @app.command("apply")
     def apply_command(
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+        archive: Path | None = typer.Option(None, "--archive", help="Offline frp tar.gz archive"),
         install_if_missing: bool = typer.Option(True, "--install-if-missing/--no-install-if-missing"),
     ) -> None:
         """Validate, render, install and restart an instance."""
@@ -81,15 +83,27 @@ def register(app: typer.Typer) -> None:
                     paths = node.resolved_paths(instance_dir)
                     binary_path = paths.binary_path(node.role)
                     current_version = read_current_version(instance_dir)
+                    download_reporter = CliDownloadProgressReporter(typer.echo)
                     if install_if_missing:
+                        explicit_archive = archive.resolve() if archive is not None else None
+                        reusing_existing_binary = explicit_archive is None and binary_path.exists() and current_version is not None
                         version = _run_step(
                             3,
                             6,
                             "Ensuring FRP binary is installed...",
-                            lambda: ensure_binary_installed(instance_dir, node),
+                            lambda: ensure_binary_installed(
+                                instance_dir,
+                                node,
+                                archive=explicit_archive,
+                                progress=download_reporter.update,
+                                download_started=download_reporter.start,
+                                download_finished=download_reporter.finish,
+                            ),
                         )
-                        if binary_path.exists() and current_version:
+                        if reusing_existing_binary:
                             _echo_skip(f"Using existing {binary_path.name} binary version {version}.")
+                        elif explicit_archive is not None:
+                            _echo_success(f"Installed {binary_path.name} binary version {version} from {explicit_archive}.")
                         else:
                             _echo_success(f"Installed {binary_path.name} binary version {version}.")
                     else:

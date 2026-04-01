@@ -36,6 +36,10 @@ def stop_service(service_name: str, *, check: bool = True) -> CommandResult:
     return run_command(["systemctl", "stop", f"{service_name}.service"], check=check)
 
 
+def reset_failed_service(service_name: str, *, check: bool = True) -> CommandResult:
+    return run_command(["systemctl", "reset-failed", f"{service_name}.service"], check=check)
+
+
 def restart_service(service_name: str) -> None:
     run_command(["systemctl", "restart", f"{service_name}.service"])
 

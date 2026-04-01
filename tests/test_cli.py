@@ -147,6 +147,91 @@ def test_apply_shows_human_readable_step_output(monkeypatch, tmp_path: Path) -> 
     assert "Apply completed successfully." in result.stdout
 
 
+def test_apply_archive_option_uses_explicit_archive(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    archive = tmp_path / "frp_0.65.0_linux_amd64.tar.gz"
+    archive.write_text("placeholder", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr("frpdeck.commands.apply.validate_instance", lambda instance_dir, node, proxies: [])
+    monkeypatch.setattr(
+        "frpdeck.commands.apply.render_instance",
+        lambda instance_dir, node, proxies: SimpleNamespace(systemd_unit_path=instance_dir / "rendered" / "demo.service"),
+    )
+    monkeypatch.setattr(
+        "frpdeck.commands.apply.sync_rendered_to_runtime",
+        lambda instance_dir, node: instance_dir / "runtime" / "config" / "frpc.toml",
+    )
+    monkeypatch.setattr("frpdeck.commands.apply.install_unit", lambda rendered_unit, target_unit: None)
+    monkeypatch.setattr("frpdeck.commands.apply.daemon_reload", lambda: None)
+    monkeypatch.setattr("frpdeck.commands.apply.enable_service", lambda service_name: None)
+    monkeypatch.setattr("frpdeck.commands.apply.restart_service", lambda service_name: None)
+
+    def fake_ensure_binary_installed(
+        instance_dir: Path,
+        node,
+        *,
+        archive: Path | None = None,
+        progress=None,
+        download_started=None,
+        download_finished=None,
+    ) -> str:
+        captured["archive"] = archive
+        return "0.65.0"
+
+    monkeypatch.setattr("frpdeck.commands.apply.ensure_binary_installed", fake_ensure_binary_installed)
+
+    result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path), "--archive", str(archive)])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["archive"] == archive.resolve()
+    assert f"Installed frpc binary version 0.65.0 from {archive.resolve()}." in result.stdout
+
+
+def test_apply_shows_download_progress_during_release_install(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    monkeypatch.setattr("frpdeck.commands.apply.validate_instance", lambda instance_dir, node, proxies: [])
+    monkeypatch.setattr(
+        "frpdeck.commands.apply.render_instance",
+        lambda instance_dir, node, proxies: SimpleNamespace(systemd_unit_path=instance_dir / "rendered" / "demo.service"),
+    )
+    monkeypatch.setattr(
+        "frpdeck.commands.apply.sync_rendered_to_runtime",
+        lambda instance_dir, node: instance_dir / "runtime" / "config" / "frpc.toml",
+    )
+    monkeypatch.setattr("frpdeck.commands.apply.install_unit", lambda rendered_unit, target_unit: None)
+    monkeypatch.setattr("frpdeck.commands.apply.daemon_reload", lambda: None)
+    monkeypatch.setattr("frpdeck.commands.apply.enable_service", lambda service_name: None)
+    monkeypatch.setattr("frpdeck.commands.apply.restart_service", lambda service_name: None)
+
+    def fake_ensure_binary_installed(
+        instance_dir: Path,
+        node,
+        *,
+        archive: Path | None = None,
+        progress=None,
+        download_started=None,
+        download_finished=None,
+    ) -> str:
+        assert archive is None
+        download_started("frp_0.65.0_linux_amd64.tar.gz")
+        progress(1_048_576, 2_097_152)
+        progress(2_097_152, 2_097_152)
+        download_finished("frp_0.65.0_linux_amd64.tar.gz")
+        return "0.65.0"
+
+    monkeypatch.setattr("frpdeck.commands.apply.ensure_binary_installed", fake_ensure_binary_installed)
+
+    result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 0, result.stdout
+    assert "Downloading frp_0.65.0_linux_amd64.tar.gz..." in result.stdout
+    assert "Download progress: 50% (1.0 MiB / 2.0 MiB)" in result.stdout
+    assert "Download progress: 100% (2.0 MiB / 2.0 MiB)" in result.stdout
+    assert "OK: Downloaded frp_0.65.0_linux_amd64.tar.gz." in result.stdout
+
+
 def test_proxy_list_succeeds_on_example_instance() -> None:
     instance = FIXTURE_ROOT / "client-node"
 
@@ -315,6 +400,52 @@ def test_status_json_gracefully_handles_missing_systemctl(monkeypatch, tmp_path:
     assert payload["command"] == "status"
     assert payload["data"]["schema_version"] == "frpdeck.status.v1"
     assert payload["warnings"]
+
+
+def test_upgrade_archive_option_uses_explicit_archive(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    archive = tmp_path / "frp_0.65.0_linux_amd64.tar.gz"
+    archive.write_text("placeholder", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_install_from_archive(instance_dir: Path, node, archive_path: Path, version_hint: str | None) -> str:
+        captured["archive_path"] = archive_path
+        return "0.65.0"
+
+    monkeypatch.setattr("frpdeck.commands.upgrade.install_from_archive", fake_install_from_archive)
+
+    result = RUNNER.invoke(app, ["upgrade", "--instance", str(tmp_path), "--archive", str(archive), "--no-restart"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["archive_path"] == archive.resolve()
+    assert "upgraded to 0.65.0" in result.stdout
+
+
+def test_upgrade_shows_download_progress_for_release_install(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    monkeypatch.setattr(
+        "frpdeck.commands.upgrade.get_release",
+        lambda binary: SimpleNamespace(asset_name="frp_0.65.0_linux_amd64.tar.gz"),
+    )
+
+    def fake_install_from_release(instance_dir: Path, node, release, *, progress=None, download_started=None, download_finished=None) -> str:
+        download_started(release.asset_name)
+        progress(1_048_576, 2_097_152)
+        progress(2_097_152, 2_097_152)
+        download_finished(release.asset_name)
+        return "0.65.0"
+
+    monkeypatch.setattr("frpdeck.commands.upgrade.install_from_release", fake_install_from_release)
+
+    result = RUNNER.invoke(app, ["upgrade", "--instance", str(tmp_path), "--no-restart"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "Downloading frp_0.65.0_linux_amd64.tar.gz..." in result.stdout
+    assert "Download progress: 50% (1.0 MiB / 2.0 MiB)" in result.stdout
+    assert "Download progress: 100% (2.0 MiB / 2.0 MiB)" in result.stdout
+    assert "OK: Downloaded frp_0.65.0_linux_amd64.tar.gz." in result.stdout
+    assert "upgraded to 0.65.0" in result.stdout
 
 
 def test_mcp_install_stdio_wrapper_creates_executable_script(tmp_path: Path) -> None:

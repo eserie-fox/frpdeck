@@ -8,6 +8,7 @@ import re
 import shutil
 import tarfile
 import tempfile
+from collections.abc import Callable
 
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import ConfigValidationError, PermissionOperationError
@@ -16,30 +17,66 @@ from frpdeck.domain.state import InstallState, NodeBase
 from frpdeck.domain.versioning import normalize_version
 from frpdeck.storage.dump import dump_json_data
 from frpdeck.services.backup import backup_file_if_exists
-from frpdeck.services.downloader import download_file
+from frpdeck.services.downloader import DownloadProgressCallback, download_file
 from frpdeck.services.release_checker import ReleaseInfo, get_release
 
 
-def ensure_binary_installed(instance_dir: Path, node: NodeBase) -> str:
+DownloadStageCallback = Callable[[str], None]
+
+
+def ensure_binary_installed(
+    instance_dir: Path,
+    node: NodeBase,
+    *,
+    archive: Path | None = None,
+    progress: DownloadProgressCallback | None = None,
+    download_started: DownloadStageCallback | None = None,
+    download_finished: DownloadStageCallback | None = None,
+) -> str:
     """Install the binary if missing and return the active version."""
     paths = node.resolved_paths(instance_dir)
     binary_path = paths.binary_path(node.role)
     current_version = read_current_version(instance_dir)
+    if archive is not None:
+        return install_from_archive(instance_dir, node, archive.resolve(), node.binary.version)
     if binary_path.exists() and current_version:
         return current_version
-    archive = node.binary.local_archive
-    if archive is not None:
-        resolved_archive = archive if archive.is_absolute() else (instance_dir / archive).resolve()
+    local_archive = node.binary.local_archive
+    if local_archive is not None:
+        resolved_archive = local_archive if local_archive.is_absolute() else (instance_dir / local_archive).resolve()
         return install_from_archive(instance_dir, node, resolved_archive, node.binary.version)
     release = get_release(node.binary)
-    return install_from_release(instance_dir, node, release)
+    return install_from_release(
+        instance_dir,
+        node,
+        release,
+        progress=progress,
+        download_started=download_started,
+        download_finished=download_finished,
+    )
 
 
-def install_from_release(instance_dir: Path, node: NodeBase, release: ReleaseInfo) -> str:
+def install_from_release(
+    instance_dir: Path,
+    node: NodeBase,
+    release: ReleaseInfo,
+    *,
+    progress: DownloadProgressCallback | None = None,
+    download_started: DownloadStageCallback | None = None,
+    download_finished: DownloadStageCallback | None = None,
+) -> str:
     """Download and install a release asset."""
     with tempfile.TemporaryDirectory(prefix="frpdeck-") as temp_dir_name:
         temp_dir = Path(temp_dir_name)
-        archive_path = download_file(release.asset_url, temp_dir / release.asset_name)
+        if download_started is not None:
+            download_started(release.asset_name)
+        archive_path = download_file(
+            release.asset_url,
+            temp_dir / release.asset_name,
+            progress=progress,
+        )
+        if download_finished is not None:
+            download_finished(release.asset_name)
         return install_from_archive(instance_dir, node, archive_path, release.version)
 
 

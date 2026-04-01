@@ -110,13 +110,19 @@ Apply an instance to the configured runtime paths:
 sudo frpdeck apply --instance ./my-client
 ```
 
+For offline install or replacement from a local FRP archive:
+
+```bash
+sudo frpdeck apply --instance ./my-client --archive /path/to/frp_0.65.0_linux_amd64.tar.gz
+```
+
 Inspect runtime state:
 
 ```bash
 frpdeck status --instance ./my-client
 ```
 
-Apply emits stage-by-stage progress in text mode so it is clear when validation, rendering, runtime sync, systemd install, and restart are happening.
+Apply emits stage-by-stage progress in text mode so it is clear when validation, rendering, binary download/install, runtime sync, systemd install, and restart are happening.
 
 Uninstall installed artifacts while keeping source configuration:
 
@@ -141,6 +147,8 @@ frpdeck uninstall --instance ./my-client --purge
 5. Run `frpdeck render --instance ./your-client`.
 6. Run `sudo frpdeck apply --instance ./your-client`.
 7. Run `frpdeck status --instance ./your-client`.
+
+For offline binary management, `apply --archive`, `upgrade --archive`, and `binary.local_archive` are all supported.
 
 ### Server instance
 
