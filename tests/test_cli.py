@@ -10,7 +10,7 @@ import yaml
 
 from frpdeck.cli import app
 from frpdeck.commands.mcp import WRAPPER_FILENAME
-from frpdeck.domain.errors import CommandExecutionError
+from frpdeck.domain.errors import CommandExecutionError, PermissionOperationError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
 from frpdeck.domain.status_models import ConfigSummary, InstanceStatus, ProxyCounts, RenderSummaryStatus, ServiceRuntimeStatus
 from frpdeck.domain.proxy_management import ApplyReport
@@ -153,8 +153,47 @@ def test_root_command_without_args_shows_help() -> None:
     assert "status" in result.stdout
 
 
+def test_proxy_group_without_subcommand_shows_help() -> None:
+    result = RUNNER.invoke(app, ["proxy"])
+
+    assert result.exit_code == 0, result.output
+    assert "Usage:" in result.output
+    assert "Structured local proxy management" in result.output
+    assert "list" in result.output
+    assert "Missing command" not in result.output
+
+
+def test_mcp_group_without_subcommand_shows_help() -> None:
+    result = RUNNER.invoke(app, ["mcp"])
+
+    assert result.exit_code == 0, result.output
+    assert "Usage:" in result.output
+    assert "MCP stdio helper commands" in result.output
+    assert "install-stdio-wrapper" in result.output
+    assert "Missing command" not in result.output
+
+
+def test_audit_group_without_subcommand_shows_help() -> None:
+    result = RUNNER.invoke(app, ["audit"])
+
+    assert result.exit_code == 0, result.output
+    assert "Usage:" in result.output
+    assert "Read-only audit inspection" in result.output
+    assert "recent" in result.output
+    assert "Missing command" not in result.output
+
+
+def test_init_without_required_args_still_reports_missing_argument() -> None:
+    result = RUNNER.invoke(app, ["init"])
+
+    assert result.exit_code != 0
+    assert "Missing argument" in result.output
+    assert "ROLE:{client|server}" in result.output
+
+
 def test_apply_shows_human_readable_step_output(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
+    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: False)
 
     def fake_apply_instance(self, instance_dir: Path, *, node=None, archive=None, install_if_missing=True, reporter=None):
         assert reporter is not None
@@ -192,8 +231,63 @@ def test_apply_shows_human_readable_step_output(monkeypatch, tmp_path: Path) -> 
     assert "Apply completed successfully." in result.stdout
 
 
+def test_apply_fails_fast_with_root_reasons_before_side_effects(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: (_ for _ in ()).throw(PermissionOperationError("apply requires elevated privileges for this instance:\n- will manage system service via systemctl\nRetry with: frpdeck apply --instance x --sudo\nOr run manually: sudo frpdeck apply --instance x")))
+    monkeypatch.setattr("frpdeck.commands.apply.instance_lock", lambda *args, **kwargs: calls.append("lock"))
+    monkeypatch.setattr("frpdeck.commands.apply.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.apply.ApplyService.apply_instance", lambda *args, **kwargs: calls.append("apply"))
+
+    result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "will manage system service via systemctl" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_apply_sudo_reexec_happens_before_original_flow(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: True)
+    monkeypatch.setattr("frpdeck.commands.apply.instance_lock", lambda *args, **kwargs: calls.append("lock"))
+    monkeypatch.setattr("frpdeck.commands.apply.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.apply.ApplyService.apply_instance", lambda *args, **kwargs: calls.append("apply"))
+
+    result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path), "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_apply_running_as_root_does_not_reexec_sudo(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    def fake_ensure_root_privileges(**kwargs) -> bool:
+        calls.append("precheck")
+        return False
+
+    def fake_apply_instance(self, instance_dir: Path, *, node=None, archive=None, install_if_missing=True, reporter=None):
+        calls.append("apply")
+        return ApplyExecutionResult(ok=True, service_name="client-demo-frpc", config_path=instance_dir / "runtime" / "config" / "frpc.toml")
+
+    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", fake_ensure_root_privileges)
+    monkeypatch.setattr("frpdeck.commands.apply.ApplyService.apply_instance", fake_apply_instance)
+
+    result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path), "--sudo", "--no-install-if-missing"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == ["precheck", "apply"]
+
+
 def test_apply_archive_option_uses_explicit_archive(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
+    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: False)
     archive = tmp_path / "frp_0.65.0_linux_amd64.tar.gz"
     archive.write_text("placeholder", encoding="utf-8")
     captured: dict[str, object] = {}
@@ -221,6 +315,7 @@ def test_apply_archive_option_uses_explicit_archive(monkeypatch, tmp_path: Path)
 
 def test_apply_shows_download_progress_during_release_install(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
+    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: False)
 
     def fake_apply_instance(self, instance_dir: Path, *, node=None, archive=None, install_if_missing=True, reporter=None):
         assert reporter is not None
@@ -254,6 +349,68 @@ def test_proxy_list_succeeds_on_example_instance() -> None:
 
     assert result.exit_code == 0, result.stdout
     assert "example_web_http" in result.stdout
+
+
+def test_uninstall_fails_fast_with_root_reasons_before_side_effects(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    monkeypatch.setattr("frpdeck.commands.uninstall.load_node_config", lambda instance_dir: build_client_node())
+    monkeypatch.setattr("frpdeck.commands.uninstall.ensure_root_privileges", lambda **kwargs: (_ for _ in ()).throw(PermissionOperationError("uninstall requires elevated privileges for this instance:\n- will manage system service via systemctl\nRetry with: frpdeck uninstall --instance x --sudo\nOr run manually: sudo frpdeck uninstall --instance x")))
+    monkeypatch.setattr("frpdeck.commands.uninstall.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.uninstall.uninstall_instance", lambda *args, **kwargs: calls.append("uninstall"))
+
+    result = RUNNER.invoke(app, ["uninstall", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "will manage system service via systemctl" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_uninstall_sudo_reexec_happens_before_original_flow(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    monkeypatch.setattr("frpdeck.commands.uninstall.load_node_config", lambda instance_dir: build_client_node())
+    monkeypatch.setattr("frpdeck.commands.uninstall.ensure_root_privileges", lambda **kwargs: True)
+    monkeypatch.setattr("frpdeck.commands.uninstall.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.uninstall.uninstall_instance", lambda *args, **kwargs: calls.append("uninstall"))
+
+    result = RUNNER.invoke(app, ["uninstall", "--instance", str(tmp_path), "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_uninstall_non_root_without_root_requirement_runs_normally(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    monkeypatch.setattr("frpdeck.commands.uninstall.load_node_config", lambda instance_dir: build_client_node(overrides={"paths": {"systemd_unit_dir": str(tmp_path / 'systemd')}}))
+    monkeypatch.setattr("frpdeck.commands.uninstall.analyze_uninstall_root_requirements", lambda instance_dir, purge=False, node=None: [])
+
+    def fake_uninstall_instance(instance_dir: Path, purge: bool = False):
+        calls.append("uninstall")
+        return SimpleNamespace(
+            service_name="client-demo-frpc",
+            unit_path=tmp_path / "systemd" / "client-demo-frpc.service",
+            service_stopped=False,
+            service_disabled=False,
+            unit_removed=False,
+            removed_paths=[],
+            kept_paths=[instance_dir],
+            warnings=[],
+            instance_deleted=False,
+        )
+
+    monkeypatch.setattr("frpdeck.commands.uninstall.uninstall_instance", fake_uninstall_instance)
+
+    result = RUNNER.invoke(app, ["uninstall", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == ["uninstall"]
 
 
 def test_proxy_list_json_returns_envelope() -> None:
