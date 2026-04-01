@@ -4,7 +4,7 @@
 
 `frpdeck` now uses a single instance-centric configuration model.
 
-- Instance config files remain YAML: `node.yaml` and `proxies.yaml`
+- Instance source config remains YAML: `node.yaml` is required for every instance, and `proxies.yaml` is used for client proxy definitions
 - There is no separate frpdeck runtime config file
 - Current config changes are not forward-compatible by policy in this phase
 
@@ -126,7 +126,7 @@ Scaffold config is assembled as:
 The override files should contain only values that differ from operational defaults. Typical scaffold-only content includes:
 
 - placeholder addresses and domains
-- sample proxies
+- sample client proxies
 
 `config_defaults/scaffold_instance_layout.json` defines the instance directory skeleton created by `frpdeck init`.
 
@@ -144,7 +144,7 @@ Operational instance loading uses merge-before-validate:
 4. Deep-merge defaults with YAML override
 5. Validate with Pydantic models
 
-`proxies.yaml` follows the same pattern with `proxy_file.json`.
+When present, `proxies.yaml` follows the same pattern with `proxy_file.json`.
 
 ## FRP Log Level Values
 

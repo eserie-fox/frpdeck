@@ -51,7 +51,6 @@ def _write_server_instance(instance_dir: Path) -> None:
         build_server_node(),
         instance_dir / "node.yaml",
     )
-    dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
 
 
 def _list_tools(server: FastMCP) -> dict[str, object]:

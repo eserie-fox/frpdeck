@@ -49,7 +49,6 @@ def _write_server_instance(instance_dir: Path) -> None:
         build_server_node(),
         instance_dir / "node.yaml",
     )
-    dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
 
 
 def _copy_fixture_instance(name: str, destination: Path) -> Path:
@@ -58,7 +57,7 @@ def _copy_fixture_instance(name: str, destination: Path) -> Path:
     return instance_dir
 
 
-def test_init_creates_base_files(tmp_path: Path) -> None:
+def test_init_client_creates_base_files(tmp_path: Path) -> None:
     result = RUNNER.invoke(app, ["init", "client", "demo-node", "--directory", str(tmp_path)])
 
     assert result.exit_code == 0, result.stdout
@@ -84,6 +83,18 @@ def test_init_creates_base_files(tmp_path: Path) -> None:
     assert (tmp_path / "demo-node" / "secrets" / "token.txt.example").read_text(encoding="utf-8") == "PLEASE_FILL_TOKEN\n"
 
 
+def test_init_server_skips_proxy_file(tmp_path: Path) -> None:
+    result = RUNNER.invoke(app, ["init", "server", "demo-node", "--directory", str(tmp_path)])
+
+    assert result.exit_code == 0, result.stdout
+    assert (tmp_path / "demo-node" / "node.yaml").exists()
+    assert not (tmp_path / "demo-node" / "proxies.yaml").exists()
+    assert (tmp_path / "demo-node" / "secrets" / "token.txt.example").exists()
+    node_payload = yaml.safe_load((tmp_path / "demo-node" / "node.yaml").read_text(encoding="utf-8"))
+    assert node_payload["server"]["subdomain_host"] == "PLEASE_FILL_DOMAIN"
+    assert node_payload["service"]["service_name"] == "frpdeck-demo-node-frps"
+
+
 def test_render_succeeds_on_example_instance(tmp_path: Path) -> None:
     instance = _copy_fixture_instance("client-node", tmp_path)
 
@@ -95,6 +106,26 @@ def test_render_succeeds_on_example_instance(tmp_path: Path) -> None:
     assert (instance / "rendered" / "frpc.toml").exists()
     assert (instance / "rendered" / "proxies.d" / "example_web_http.toml").exists()
     assert (instance / "rendered" / "proxies.d" / "example_ssh_tcp.toml").exists()
+
+
+def test_render_and_validate_server_without_proxy_file(tmp_path: Path) -> None:
+    dump_yaml_model(
+        build_server_node(overrides={"server": {"subdomain_host": "example.com"}}),
+        tmp_path / "node.yaml",
+    )
+
+    assert not (tmp_path / "proxies.yaml").exists()
+
+    render_result = RUNNER.invoke(app, ["render", "--instance", str(tmp_path)])
+
+    assert render_result.exit_code == 0, render_result.stdout
+    assert (tmp_path / "rendered" / "frps.toml").exists()
+    assert "proxy includes: 0" in render_result.stdout
+
+    validate_result = RUNNER.invoke(app, ["validate", "--instance", str(tmp_path)])
+
+    assert validate_result.exit_code == 0, validate_result.stdout
+    assert "validation passed" in validate_result.stdout
 
 
 def test_validate_reports_placeholder_errors() -> None:

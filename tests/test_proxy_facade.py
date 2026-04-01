@@ -26,7 +26,6 @@ def _write_server_instance(instance_dir: Path) -> None:
         build_server_node(),
         instance_dir / "node.yaml",
     )
-    dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
 
 
 def test_list_proxies_returns_schema_and_jsonable_data(tmp_path: Path) -> None:

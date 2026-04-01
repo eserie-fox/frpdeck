@@ -43,13 +43,14 @@ def scaffold_instance(base_dir: Path, role: Role, instance_name: str) -> Path:
     node = NODE_CONFIG_ADAPTER.validate_python(node_payload)
     dump_yaml_model(node, instance_dir / "node.yaml")
 
-    proxies = ProxyFile.model_validate(
-        config_deep_merge(
-            load_proxy_file_defaults(),
-            load_scaffold_proxy_file_overrides(),
+    if role == Role.CLIENT:
+        proxies = ProxyFile.model_validate(
+            config_deep_merge(
+                load_proxy_file_defaults(),
+                load_scaffold_proxy_file_overrides(),
+            )
         )
-    )
-    dump_yaml_model(proxies, instance_dir / "proxies.yaml")
+        dump_yaml_model(proxies, instance_dir / "proxies.yaml")
 
     (instance_dir / "secrets" / "token.txt.example").write_text(load_scaffold_token_example(), encoding="utf-8")
     return instance_dir

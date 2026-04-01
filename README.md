@@ -153,7 +153,7 @@ For offline binary management, `apply --archive`, `upgrade --archive`, and `bina
 ### Server instance
 
 1. Run `frpdeck init server your-server`.
-2. Replace `PLEASE_FILL_DOMAIN` and create `secrets/token.txt`.
+2. Replace `PLEASE_FILL_DOMAIN` in `node.yaml` and create `secrets/token.txt`.
 3. Run `frpdeck validate --instance ./your-server`.
 4. Run `frpdeck render --instance ./your-server`.
 5. Run `sudo frpdeck apply --instance ./your-server`.
@@ -253,4 +253,4 @@ Repository fixtures now live under `tests/fixtures/instances/`. They exist for t
 - By default, runtime files are installed under `runtime/` inside the instance directory, while the systemd unit is written to `/etc/systemd/system`.
 - FRP's own logs are controlled by `client.log` or `server.log` and are written into generated frpc/frps config.
 - `frpdeck`'s own logs are configured by top-level `frpdeck_logging` inside `node.yaml`.
-- Instance configuration files remain `node.yaml` and `proxies.yaml`. There is no separate runtime config file for frpdeck in the current design.
+- Source configuration remains YAML. `node.yaml` is always present, while `proxies.yaml` is used for client proxy definitions and may be absent on server instances. There is no separate runtime config file for frpdeck in the current design.

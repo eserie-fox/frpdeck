@@ -37,7 +37,6 @@ def _write_client_instance(
 def _write_server_instance(instance_dir: Path) -> None:
     node = build_server_node()
     dump_yaml_model(node, instance_dir / "node.yaml")
-    dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
 
 
 def test_add_proxy_succeeds_and_rejects_duplicates(tmp_path: Path) -> None:
