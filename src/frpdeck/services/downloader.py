@@ -22,7 +22,7 @@ def download_file(
 ) -> Path:
     """Download a URL to a local file."""
     destination.parent.mkdir(parents=True, exist_ok=True)
-    request = Request(url, headers={"User-Agent": "frpdeck/0.1"})
+    request = Request(url, headers={"User-Agent": "frpdeck"})
     try:
         with urlopen(request, timeout=60) as response, destination.open("wb") as handle:
             total_bytes = _parse_content_length(response.headers.get("Content-Length"))

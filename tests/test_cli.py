@@ -12,7 +12,9 @@ from frpdeck.cli import app
 from frpdeck.commands.mcp import WRAPPER_FILENAME
 from frpdeck.domain.errors import CommandExecutionError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
+from frpdeck.domain.status_models import ConfigSummary, InstanceStatus, ProxyCounts, RenderSummaryStatus, ServiceRuntimeStatus
 from frpdeck.domain.proxy_management import ApplyReport
+from frpdeck.services.apply_service import ApplyExecutionResult
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node, build_server_node
 
@@ -123,16 +125,28 @@ def test_root_command_without_args_shows_help() -> None:
 def test_apply_shows_human_readable_step_output(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
 
-    monkeypatch.setattr("frpdeck.commands.apply.validate_instance", lambda instance_dir, node, proxies: [])
-    monkeypatch.setattr(
-        "frpdeck.commands.apply.render_instance",
-        lambda instance_dir, node, proxies: SimpleNamespace(systemd_unit_path=instance_dir / "rendered" / "demo.service"),
-    )
-    monkeypatch.setattr("frpdeck.commands.apply.sync_rendered_to_runtime", lambda instance_dir, node: instance_dir / "runtime" / "config" / "frpc.toml")
-    monkeypatch.setattr("frpdeck.commands.apply.install_unit", lambda rendered_unit, target_unit: None)
-    monkeypatch.setattr("frpdeck.commands.apply.daemon_reload", lambda: None)
-    monkeypatch.setattr("frpdeck.commands.apply.enable_service", lambda service_name: None)
-    monkeypatch.setattr("frpdeck.commands.apply.restart_service", lambda service_name: None)
+    def fake_apply_instance(self, instance_dir: Path, *, node=None, archive=None, install_if_missing=True, reporter=None):
+        assert reporter is not None
+        assert install_if_missing is False
+        reporter.step_started(1, 6, "Validating instance configuration...")
+        reporter.step_succeeded("Validation passed.")
+        reporter.step_started(2, 6, "Rendering configuration files...")
+        reporter.step_succeeded(f"Rendered files under {instance_dir / 'rendered'}.")
+        reporter.step_started(3, 6, "Ensuring FRP binary is installed...")
+        reporter.step_skipped("Binary installation skipped by --no-install-if-missing.")
+        reporter.step_started(4, 6, "Syncing rendered files into runtime directories...")
+        reporter.step_succeeded(f"Updated FRP runtime config at {instance_dir / 'runtime' / 'config' / 'frpc.toml'}.")
+        reporter.step_started(5, 6, "Installing/updating systemd unit...")
+        reporter.step_succeeded(f"Installed unit at {instance_dir / 'units' / 'client-demo-frpc.service'}.")
+        reporter.step_started(6, 6, "Reloading systemd and restarting service...")
+        reporter.step_succeeded("Service client-demo-frpc is enabled and restarted.")
+        return ApplyExecutionResult(
+            ok=True,
+            service_name="client-demo-frpc",
+            config_path=instance_dir / "runtime" / "config" / "frpc.toml",
+        )
+
+    monkeypatch.setattr("frpdeck.commands.apply.ApplyService.apply_instance", fake_apply_instance)
 
     result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path), "--no-install-if-missing"])
 
@@ -153,33 +167,19 @@ def test_apply_archive_option_uses_explicit_archive(monkeypatch, tmp_path: Path)
     archive.write_text("placeholder", encoding="utf-8")
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr("frpdeck.commands.apply.validate_instance", lambda instance_dir, node, proxies: [])
-    monkeypatch.setattr(
-        "frpdeck.commands.apply.render_instance",
-        lambda instance_dir, node, proxies: SimpleNamespace(systemd_unit_path=instance_dir / "rendered" / "demo.service"),
-    )
-    monkeypatch.setattr(
-        "frpdeck.commands.apply.sync_rendered_to_runtime",
-        lambda instance_dir, node: instance_dir / "runtime" / "config" / "frpc.toml",
-    )
-    monkeypatch.setattr("frpdeck.commands.apply.install_unit", lambda rendered_unit, target_unit: None)
-    monkeypatch.setattr("frpdeck.commands.apply.daemon_reload", lambda: None)
-    monkeypatch.setattr("frpdeck.commands.apply.enable_service", lambda service_name: None)
-    monkeypatch.setattr("frpdeck.commands.apply.restart_service", lambda service_name: None)
-
-    def fake_ensure_binary_installed(
-        instance_dir: Path,
-        node,
-        *,
-        archive: Path | None = None,
-        progress=None,
-        download_started=None,
-        download_finished=None,
-    ) -> str:
+    def fake_apply_instance(self, instance_dir: Path, *, node=None, archive=None, install_if_missing=True, reporter=None):
         captured["archive"] = archive
-        return "0.65.0"
+        assert reporter is not None
+        reporter.step_started(3, 6, "Ensuring FRP binary is installed...")
+        reporter.step_succeeded(f"Installed frpc binary version 0.65.0 from {archive}.")
+        return ApplyExecutionResult(
+            ok=True,
+            service_name="client-demo-frpc",
+            binary_version="0.65.0",
+            config_path=instance_dir / "runtime" / "config" / "frpc.toml",
+        )
 
-    monkeypatch.setattr("frpdeck.commands.apply.ensure_binary_installed", fake_ensure_binary_installed)
+    monkeypatch.setattr("frpdeck.commands.apply.ApplyService.apply_instance", fake_apply_instance)
 
     result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path), "--archive", str(archive)])
 
@@ -191,37 +191,21 @@ def test_apply_archive_option_uses_explicit_archive(monkeypatch, tmp_path: Path)
 def test_apply_shows_download_progress_during_release_install(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
 
-    monkeypatch.setattr("frpdeck.commands.apply.validate_instance", lambda instance_dir, node, proxies: [])
-    monkeypatch.setattr(
-        "frpdeck.commands.apply.render_instance",
-        lambda instance_dir, node, proxies: SimpleNamespace(systemd_unit_path=instance_dir / "rendered" / "demo.service"),
-    )
-    monkeypatch.setattr(
-        "frpdeck.commands.apply.sync_rendered_to_runtime",
-        lambda instance_dir, node: instance_dir / "runtime" / "config" / "frpc.toml",
-    )
-    monkeypatch.setattr("frpdeck.commands.apply.install_unit", lambda rendered_unit, target_unit: None)
-    monkeypatch.setattr("frpdeck.commands.apply.daemon_reload", lambda: None)
-    monkeypatch.setattr("frpdeck.commands.apply.enable_service", lambda service_name: None)
-    monkeypatch.setattr("frpdeck.commands.apply.restart_service", lambda service_name: None)
-
-    def fake_ensure_binary_installed(
-        instance_dir: Path,
-        node,
-        *,
-        archive: Path | None = None,
-        progress=None,
-        download_started=None,
-        download_finished=None,
-    ) -> str:
+    def fake_apply_instance(self, instance_dir: Path, *, node=None, archive=None, install_if_missing=True, reporter=None):
+        assert reporter is not None
         assert archive is None
-        download_started("frp_0.65.0_linux_amd64.tar.gz")
-        progress(1_048_576, 2_097_152)
-        progress(2_097_152, 2_097_152)
-        download_finished("frp_0.65.0_linux_amd64.tar.gz")
-        return "0.65.0"
+        reporter.download_started("frp_0.65.0_linux_amd64.tar.gz")
+        reporter.download_progress(1_048_576, 2_097_152)
+        reporter.download_progress(2_097_152, 2_097_152)
+        reporter.download_finished("frp_0.65.0_linux_amd64.tar.gz")
+        return ApplyExecutionResult(
+            ok=True,
+            service_name="client-demo-frpc",
+            binary_version="0.65.0",
+            config_path=instance_dir / "runtime" / "config" / "frpc.toml",
+        )
 
-    monkeypatch.setattr("frpdeck.commands.apply.ensure_binary_installed", fake_ensure_binary_installed)
+    monkeypatch.setattr("frpdeck.commands.apply.ApplyService.apply_instance", fake_apply_instance)
 
     result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path)])
 
@@ -262,7 +246,7 @@ def test_proxy_list_json_stays_clean_with_instance_logging_enabled(monkeypatch, 
         node_overrides={
             "frpdeck_logging": {
                 "level": "INFO",
-                "stream": "stderr",
+                "stream": "stdout",
                 "file_path": "state/logs/frpdeck.log",
             }
         },
@@ -282,7 +266,10 @@ def test_proxy_list_json_stays_clean_with_instance_logging_enabled(monkeypatch, 
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
-    assert (instance / "state" / "logs" / "frpdeck.log").is_symlink()
+    log_path = instance / "state" / "logs" / "frpdeck.log"
+    assert log_path.is_symlink()
+    assert "proxy list invoked" in log_path.resolve().read_text(encoding="utf-8")
+    assert result.stdout.strip().startswith("{")
 
 
 def test_proxy_show_json_returns_single_proxy() -> None:
@@ -402,6 +389,45 @@ def test_status_json_gracefully_handles_missing_systemctl(monkeypatch, tmp_path:
     assert payload["warnings"]
 
 
+def test_status_json_stays_clean_with_instance_logging_enabled(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(
+        tmp_path,
+        node_overrides={
+            "frpdeck_logging": {
+                "level": "INFO",
+                "stream": "stdout",
+                "file_path": "state/logs/frpdeck.log",
+            }
+        },
+    )
+
+    def fake_get_instance_status(self, instance_dir: Path) -> InstanceStatus:
+        logging.getLogger("frpdeck.test").info("status invoked")
+        return InstanceStatus(
+            instance=str(instance_dir.resolve()),
+            instance_name="client-demo",
+            role="client",
+            service_name="client-demo-frpc",
+            config_summary=ConfigSummary(node_config_loaded=True, proxy_config_loaded=True, proxy_total=2, enabled_proxies=1, disabled_proxies=1),
+            proxy_counts=ProxyCounts(total=2, enabled=1, disabled=1, by_type={"tcp": 1, "udp": 1}),
+            render_summary=RenderSummaryStatus(main_config_exists=True, rendered_proxy_files=["ssh.toml"], rendered_proxy_count=1, matches_enabled_proxy_count=True),
+            service_status=ServiceRuntimeStatus(available=True, active=True),
+        )
+
+    monkeypatch.setattr("frpdeck.commands.status.StatusService.get_instance_status", fake_get_instance_status)
+
+    result = RUNNER.invoke(app, ["status", "--instance", str(tmp_path), "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["command"] == "status"
+    log_path = tmp_path / "state" / "logs" / "frpdeck.log"
+    assert log_path.is_symlink()
+    assert "status invoked" in log_path.resolve().read_text(encoding="utf-8")
+    assert result.stdout.strip().startswith("{")
+
+
 def test_upgrade_archive_option_uses_explicit_archive(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
     archive = tmp_path / "frp_0.65.0_linux_amd64.tar.gz"
@@ -509,7 +535,7 @@ def test_mcp_install_stdio_wrapper_allows_python_override(tmp_path: Path) -> Non
     assert f"Python: {fake_python.resolve()}" in result.stdout
 
 
-def test_mcp_install_stdio_wrapper_prefers_virtual_env_python(monkeypatch, tmp_path: Path) -> None:
+def test_mcp_install_stdio_wrapper_ignores_virtual_env_for_default_python(monkeypatch, tmp_path: Path) -> None:
     venv_python = tmp_path / "venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True, exist_ok=True)
     venv_python.write_text("", encoding="utf-8")
@@ -520,8 +546,30 @@ def test_mcp_install_stdio_wrapper_prefers_virtual_env_python(monkeypatch, tmp_p
 
     assert result.exit_code == 0, result.stdout
     content = (tmp_path / WRAPPER_FILENAME).read_text(encoding="utf-8")
-    assert f"PYTHON_BIN={venv_python.resolve()}" in content
-    assert f"Python: {venv_python.resolve()}" in result.stdout
+    assert f"PYTHON_BIN={Path(sys.executable).resolve()}" in content
+    assert f"Python: {Path(sys.executable).resolve()}" in result.stdout
+
+
+def test_mcp_install_stdio_wrapper_python_override_wins_over_virtual_env(monkeypatch, tmp_path: Path) -> None:
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True, exist_ok=True)
+    venv_python.write_text("", encoding="utf-8")
+    venv_python.chmod(0o755)
+    fake_python = tmp_path / "bin" / "python-custom"
+    fake_python.parent.mkdir(parents=True, exist_ok=True)
+    fake_python.write_text("", encoding="utf-8")
+    fake_python.chmod(0o755)
+    monkeypatch.setenv("VIRTUAL_ENV", str(tmp_path / "venv"))
+
+    result = RUNNER.invoke(
+        app,
+        ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path), "--python", str(fake_python)],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    content = (tmp_path / WRAPPER_FILENAME).read_text(encoding="utf-8")
+    assert f"PYTHON_BIN={fake_python.resolve()}" in content
+    assert f"Python: {fake_python.resolve()}" in result.stdout
 
 
 def test_mcp_uninstall_stdio_wrapper_removes_script(tmp_path: Path) -> None:

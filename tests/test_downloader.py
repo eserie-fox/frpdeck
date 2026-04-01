@@ -33,11 +33,13 @@ class _FakeResponse:
 
 def test_download_file_reports_progress_with_content_length(monkeypatch, tmp_path: Path) -> None:
     progress_calls: list[tuple[int, int | None]] = []
+    seen_headers: list[dict[str, str]] = []
 
-    monkeypatch.setattr(
-        "frpdeck.services.downloader.urlopen",
-        lambda request, timeout=60: _FakeResponse([b"abc", b"def", b"ghi"], content_length="9"),
-    )
+    def fake_urlopen(request, timeout=60):
+        seen_headers.append(dict(request.header_items()))
+        return _FakeResponse([b"abc", b"def", b"ghi"], content_length="9")
+
+    monkeypatch.setattr("frpdeck.services.downloader.urlopen", fake_urlopen)
 
     destination = download_file(
         "https://example.invalid/frp.tar.gz",
@@ -47,6 +49,7 @@ def test_download_file_reports_progress_with_content_length(monkeypatch, tmp_pat
 
     assert destination.read_bytes() == b"abcdefghi"
     assert progress_calls == [(3, 9), (6, 9), (9, 9)]
+    assert seen_headers == [{"User-agent": "frpdeck"}]
 
 
 def test_download_file_reports_progress_without_content_length(monkeypatch, tmp_path: Path) -> None:

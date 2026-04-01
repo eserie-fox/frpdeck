@@ -2,43 +2,44 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, TypeVar
 
 import typer
 
 from frpdeck.commands._download_progress import CliDownloadProgressReporter
-from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, FrpdeckError, PermissionOperationError
-from frpdeck.domain.state import ApplyState
 from frpdeck.logging import instance_logging_context
-from frpdeck.services.installer import ensure_binary_installed, read_current_version, sync_rendered_to_runtime
-from frpdeck.services.renderer import render_instance
-from frpdeck.services.systemd_manager import daemon_reload, enable_service, install_unit, restart_service
-from frpdeck.services.verifier import validate_instance
-from frpdeck.storage.dump import dump_json_data
+from frpdeck.services.apply_service import ApplyExecutionError, ApplyProgressReporter, ApplyService, LOAD_CONFIG_STEP
 from frpdeck.storage.file_lock import instance_lock
-from frpdeck.storage.load import load_node_config, load_proxy_file
+from frpdeck.storage.load import load_node_config
 
+@dataclass(slots=True)
+class _CliApplyReporter(ApplyProgressReporter):
+    echo: Callable[[str], None]
+    _download: CliDownloadProgressReporter = field(init=False)
 
-StepResult = TypeVar("StepResult")
+    def __post_init__(self) -> None:
+        self._download = CliDownloadProgressReporter(self.echo)
 
+    def step_started(self, index: int, total: int, message: str) -> None:
+        self.echo(f"[{index}/{total}] {message}")
 
-def _echo_step(index: int, total: int, message: str) -> None:
-    typer.echo(f"[{index}/{total}] {message}")
+    def step_succeeded(self, message: str) -> None:
+        self.echo(f"OK: {message}")
 
+    def step_skipped(self, message: str) -> None:
+        self.echo(f"SKIP: {message}")
 
-def _echo_success(message: str) -> None:
-    typer.echo(f"OK: {message}")
+    def download_started(self, asset_name: str) -> None:
+        self._download.start(asset_name)
 
+    def download_progress(self, downloaded_bytes: int, total_bytes: int | None) -> None:
+        self._download.update(downloaded_bytes, total_bytes)
 
-def _echo_skip(message: str) -> None:
-    typer.echo(f"SKIP: {message}")
-
-
-def _run_step(index: int, total: int, message: str, action: Callable[[], StepResult]) -> StepResult:
-    _echo_step(index, total, message)
-    return action()
+    def download_finished(self, asset_name: str) -> None:
+        self._download.finish(asset_name)
 
 
 def register(app: typer.Typer) -> None:
@@ -50,107 +51,27 @@ def register(app: typer.Typer) -> None:
     ) -> None:
         """Validate, render, install and restart an instance."""
         instance_dir = instance.resolve()
-        current_step = "loading instance configuration"
         try:
             with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
                 node = load_node_config(instance_dir)
                 with instance_logging_context(instance_dir, node=node):
-                    proxies = load_proxy_file(instance_dir) if node.role == Role.CLIENT else None
-
-                    current_step = "validating instance configuration"
-                    errors = _run_step(
-                        1,
-                        6,
-                        "Validating instance configuration...",
-                        lambda: validate_instance(instance_dir, node, proxies),
+                    result = ApplyService().apply_instance(
+                        instance_dir,
+                        node=node,
+                        archive=archive,
+                        install_if_missing=install_if_missing,
+                        reporter=_CliApplyReporter(typer.echo),
                     )
-                    if errors:
-                        for error in errors:
-                            typer.echo(f"ERROR: {error}")
-                        raise typer.Exit(code=1)
-                    _echo_success("Validation passed.")
-
-                    current_step = "rendering configuration files"
-                    summary = _run_step(
-                        2,
-                        6,
-                        "Rendering configuration files...",
-                        lambda: render_instance(instance_dir, node, proxies),
-                    )
-                    _echo_success(f"Rendered files under {instance_dir / 'rendered'}.")
-
-                    current_step = "ensuring FRP binary is installed"
-                    paths = node.resolved_paths(instance_dir)
-                    binary_path = paths.binary_path(node.role)
-                    current_version = read_current_version(instance_dir)
-                    download_reporter = CliDownloadProgressReporter(typer.echo)
-                    if install_if_missing:
-                        explicit_archive = archive.resolve() if archive is not None else None
-                        reusing_existing_binary = explicit_archive is None and binary_path.exists() and current_version is not None
-                        version = _run_step(
-                            3,
-                            6,
-                            "Ensuring FRP binary is installed...",
-                            lambda: ensure_binary_installed(
-                                instance_dir,
-                                node,
-                                archive=explicit_archive,
-                                progress=download_reporter.update,
-                                download_started=download_reporter.start,
-                                download_finished=download_reporter.finish,
-                            ),
-                        )
-                        if reusing_existing_binary:
-                            _echo_skip(f"Using existing {binary_path.name} binary version {version}.")
-                        elif explicit_archive is not None:
-                            _echo_success(f"Installed {binary_path.name} binary version {version} from {explicit_archive}.")
-                        else:
-                            _echo_success(f"Installed {binary_path.name} binary version {version}.")
-                    else:
-                        _echo_step(3, 6, "Ensuring FRP binary is installed...")
-                        _echo_skip("Binary installation skipped by --no-install-if-missing.")
-
-                    current_step = "syncing rendered files into runtime directories"
-                    config_path = _run_step(
-                        4,
-                        6,
-                        "Syncing rendered files into runtime directories...",
-                        lambda: sync_rendered_to_runtime(instance_dir, node),
-                    )
-                    _echo_success(f"Updated FRP runtime config at {config_path}.")
-
-                    current_step = "installing or updating the systemd unit"
-                    _run_step(
-                        5,
-                        6,
-                        "Installing/updating systemd unit...",
-                        lambda: install_unit(
-                            summary.systemd_unit_path,
-                            paths.unit_path(node.service.service_name),
-                        ),
-                    )
-                    _echo_success(f"Installed unit at {paths.unit_path(node.service.service_name)}.")
-
-                    current_step = "reloading systemd and restarting service"
-                    _run_step(
-                        6,
-                        6,
-                        "Reloading systemd and restarting service...",
-                        lambda: (
-                            daemon_reload(),
-                            enable_service(node.service.service_name),
-                            restart_service(node.service.service_name),
-                        ),
-                    )
-                    _echo_success(f"Service {node.service.service_name} is enabled and restarted.")
-
-                    dump_json_data(
-                        ApplyState.create(node.service.service_name, config_path).model_dump(mode="json"),
-                        instance_dir / "state" / "last_apply.json",
-                    )
-                    typer.echo("Apply completed successfully.")
+                if not result.ok:
+                    for error in result.validation_errors:
+                        typer.echo(f"ERROR: {error}")
+                    raise typer.Exit(code=1)
+                typer.echo("Apply completed successfully.")
         except typer.Exit:
             raise
+        except ApplyExecutionError as exc:
+            typer.echo(f"ERROR: apply failed during {exc.step}: {exc}")
+            raise typer.Exit(code=1) from exc
         except (ConfigLoadError, PermissionOperationError, CommandExecutionError, FrpdeckError) as exc:
-            typer.echo(f"ERROR: apply failed during {current_step}: {exc}")
+            typer.echo(f"ERROR: apply failed during {LOAD_CONFIG_STEP}: {exc}")
             raise typer.Exit(code=1) from exc

@@ -53,7 +53,7 @@ def get_release_by_version(binary: BinaryConfig, version: str) -> ReleaseInfo:
 
 
 def _fetch_release_payload(url: str) -> dict[str, object]:
-    request = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "frpdeck/0.1"})
+    request = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "frpdeck"})
     try:
         with urlopen(request, timeout=20) as response:
             payload = json.load(response)

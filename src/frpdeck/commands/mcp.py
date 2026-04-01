@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import os
-
 import typer
 
 from frpdeck.services.audit import build_actor, record_audit_event
@@ -95,11 +93,6 @@ def resolve_wrapper_python_executable(python_override: Path | None = None) -> Pa
     """Resolve the Python interpreter embedded into the wrapper script."""
     if python_override is not None:
         return python_override.resolve()
-    virtual_env = os.environ.get("VIRTUAL_ENV")
-    if virtual_env:
-        candidate = Path(virtual_env).expanduser().resolve() / "bin" / "python"
-        if candidate.exists() and os.access(candidate, os.X_OK):
-            return candidate
     return Path(sys.executable).resolve()
 
 
@@ -140,7 +133,15 @@ def _record_wrapper_audit(
 @mcp_app.command("install-stdio-wrapper")
 def install_stdio_wrapper_command(
     instance: Path = typer.Option(Path("."), "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"),
-    python_path: Path | None = typer.Option(None, "--python", exists=True, file_okay=True, dir_okay=False, resolve_path=True, help="Python interpreter to embed in the wrapper script"),
+    python_path: Path | None = typer.Option(
+        None,
+        "--python",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+        help="Python interpreter to embed in the wrapper script. Defaults to the current frpdeck interpreter.",
+    ),
     ssh_host: str = typer.Option(DEFAULT_SSH_HOST, "--ssh-host", help="Host shown in the Claude Code example command"),
 ) -> None:
     """Install or update a bound stdio MCP wrapper script for one instance."""

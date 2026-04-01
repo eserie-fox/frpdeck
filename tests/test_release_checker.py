@@ -24,9 +24,11 @@ class _FakeResponse:
 
 def test_get_release_uses_pinned_tag_endpoint(monkeypatch) -> None:
     seen_urls: list[str] = []
+    seen_headers: list[dict[str, str]] = []
 
     def fake_urlopen(request, timeout=20):
         seen_urls.append(request.full_url)
+        seen_headers.append(dict(request.header_items()))
         return _FakeResponse(
             {
                 "tag_name": "v0.65.0",
@@ -44,6 +46,7 @@ def test_get_release_uses_pinned_tag_endpoint(monkeypatch) -> None:
     release = get_release(build_binary_config(overrides={"version": "v0.65.0"}))
 
     assert seen_urls == ["https://api.github.com/repos/fatedier/frp/releases/tags/v0.65.0"]
+    assert seen_headers == [{"Accept": "application/vnd.github+json", "User-agent": "frpdeck"}]
     assert release.version == "0.65.0"
 
 

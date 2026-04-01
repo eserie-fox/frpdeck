@@ -162,7 +162,7 @@ For offline binary management, `apply --archive`, `upgrade --archive`, and `bina
 
 `frpdeck` ships with a local stdio MCP thin wrapper over structured proxy tools and read-only status resources. It is designed to bind to one instance directory at a time and is best used through a generated wrapper script.
 
-Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point your MCP client at that script. Prefer the generated wrapper over writing your own unless you have a specific reason to customize startup behavior. The wrapper binds to your chosen instance directory and embeds the Python interpreter detected when the script is created.
+Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point your MCP client at that script. Prefer the generated wrapper over writing your own unless you have a specific reason to customize startup behavior. The wrapper binds to your chosen instance directory and, by default, embeds the Python interpreter running `frpdeck` when the script is created. Use `--python /path/to/python` if you need to override that explicitly.
 
 In practice, wrapper scripts are most commonly generated for client instances, because proxy configuration is usually managed on the client side. That is a usage pattern rather than a hard restriction: the MCP wrapper is tied to an instance directory, not to a separate client-only mode in the documentation.
 

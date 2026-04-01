@@ -215,6 +215,22 @@ def test_bound_mode_tool_schema_omits_instance_dir() -> None:
     assert "instance_dir" not in tools["apply_proxy_changes"].inputSchema.get("properties", {})
 
 
+def test_bound_and_generic_modes_expose_same_tool_names_with_expected_instance_dir_difference() -> None:
+    generic_tools = _list_tools(create_mcp_server())
+    bound_tools = _list_tools(create_mcp_server(Path(".")))
+
+    assert set(generic_tools) == set(bound_tools)
+    for name in generic_tools:
+        generic_properties = generic_tools[name].inputSchema.get("properties", {})
+        bound_properties = bound_tools[name].inputSchema.get("properties", {})
+        if name == "server_info":
+            assert "instance_dir" not in generic_properties
+            assert "instance_dir" not in bound_properties
+            continue
+        assert "instance_dir" in generic_properties
+        assert "instance_dir" not in bound_properties
+
+
 def test_bound_mode_resources_are_parameterless_and_readable(tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
     server = create_mcp_server(tmp_path)
