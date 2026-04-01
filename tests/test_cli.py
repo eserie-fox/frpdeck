@@ -156,7 +156,7 @@ def test_root_command_without_args_shows_help() -> None:
 def test_proxy_group_without_subcommand_shows_help() -> None:
     result = RUNNER.invoke(app, ["proxy"])
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 2, result.output
     assert "Usage:" in result.output
     assert "Structured local proxy management" in result.output
     assert "list" in result.output
@@ -166,7 +166,7 @@ def test_proxy_group_without_subcommand_shows_help() -> None:
 def test_mcp_group_without_subcommand_shows_help() -> None:
     result = RUNNER.invoke(app, ["mcp"])
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 2, result.output
     assert "Usage:" in result.output
     assert "MCP stdio helper commands" in result.output
     assert "install-stdio-wrapper" in result.output
@@ -176,7 +176,7 @@ def test_mcp_group_without_subcommand_shows_help() -> None:
 def test_audit_group_without_subcommand_shows_help() -> None:
     result = RUNNER.invoke(app, ["audit"])
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 2, result.output
     assert "Usage:" in result.output
     assert "Read-only audit inspection" in result.output
     assert "recent" in result.output

@@ -31,7 +31,7 @@ from frpdeck.logging import instance_logging_context
 from frpdeck.services.proxy_manager import ProxyManager, load_proxy_spec_from_file
 
 
-proxy_app = typer.Typer(help="Structured local proxy management", invoke_without_command=True)
+proxy_app = typer.Typer(help="Structured local proxy management", no_args_is_help=True)
 MANAGER = ProxyManager()
 CommandResult = TypeVar("CommandResult")
 
@@ -49,14 +49,6 @@ class _ProxyCommandContext:
 
 def register(app: typer.Typer) -> None:
     app.add_typer(proxy_app, name="proxy")
-
-
-@proxy_app.callback()
-def proxy_callback(ctx: typer.Context) -> None:
-    """Show group help when no proxy subcommand is provided."""
-    if ctx.invoked_subcommand is None:
-        typer.echo(ctx.get_help())
-        raise typer.Exit()
 
 
 @proxy_app.command("list")

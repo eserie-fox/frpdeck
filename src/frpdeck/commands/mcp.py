@@ -17,19 +17,11 @@ from frpdeck.storage.load import load_node_config
 WRAPPER_FILENAME = "start-mcp-stdio.sh"
 DEFAULT_SSH_HOST = "grape_networking"
 
-mcp_app = typer.Typer(help="MCP stdio helper commands", invoke_without_command=True)
+mcp_app = typer.Typer(help="MCP stdio helper commands", no_args_is_help=True)
 
 
 def register(app: typer.Typer) -> None:
     app.add_typer(mcp_app, name="mcp")
-
-
-@mcp_app.callback()
-def mcp_callback(ctx: typer.Context) -> None:
-    """Show group help when no MCP subcommand is provided."""
-    if ctx.invoked_subcommand is None:
-        typer.echo(ctx.get_help())
-        raise typer.Exit()
 
 
 def render_stdio_wrapper(instance_dir: Path, *, python_executable: Path, workdir: Path) -> str:

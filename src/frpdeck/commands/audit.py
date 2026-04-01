@@ -11,19 +11,11 @@ from frpdeck.commands.output import emit_json_envelope
 from frpdeck.services.audit import audit_log_path, read_recent_audit_entries
 
 
-audit_app = typer.Typer(help="Read-only audit inspection", invoke_without_command=True)
+audit_app = typer.Typer(help="Read-only audit inspection", no_args_is_help=True)
 
 
 def register(app: typer.Typer) -> None:
     app.add_typer(audit_app, name="audit")
-
-
-@audit_app.callback()
-def audit_callback(ctx: typer.Context) -> None:
-    """Show group help when no audit subcommand is provided."""
-    if ctx.invoked_subcommand is None:
-        typer.echo(ctx.get_help())
-        raise typer.Exit()
 
 
 @audit_app.command("recent")
