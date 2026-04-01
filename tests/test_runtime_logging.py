@@ -178,6 +178,55 @@ def test_instance_logging_context_uses_instance_file_and_restores_previous_handl
     assert "instance logging active" in symlink.resolve().read_text(encoding="utf-8")
 
 
+def test_instance_logging_context_stream_override_none_suppresses_console_and_keeps_file_logging(tmp_path: Path, capsys) -> None:
+    dump_yaml_model(
+        build_client_node(
+            overrides={
+                "frpdeck_logging": {
+                    "level": "INFO",
+                    "stream": "stdout",
+                    "file_path": "state/logs/frpdeck.log",
+                }
+            }
+        ),
+        tmp_path / "node.yaml",
+    )
+
+    with _restore_root_logger():
+        with instance_logging_context(tmp_path, stream_override="none"):
+            logging.getLogger("frpdeck.test").info("no console output")
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    symlink = tmp_path / "state" / "logs" / "frpdeck.log"
+    assert symlink.is_symlink()
+    assert "no console output" in symlink.resolve().read_text(encoding="utf-8")
+
+
+def test_instance_logging_context_without_override_honors_configured_stream(tmp_path: Path, capsys) -> None:
+    dump_yaml_model(
+        build_client_node(
+            overrides={
+                "frpdeck_logging": {
+                    "level": "INFO",
+                    "stream": "stdout",
+                    "file_path": None,
+                }
+            }
+        ),
+        tmp_path / "node.yaml",
+    )
+
+    with _restore_root_logger():
+        with instance_logging_context(tmp_path):
+            logging.getLogger("frpdeck.test").info("stdout logging active")
+
+    captured = capsys.readouterr()
+    assert "stdout logging active" in captured.out
+    assert captured.err == ""
+
+
 def test_instance_logging_context_fails_fast_for_missing_node_config(tmp_path: Path) -> None:
     with _restore_root_logger():
         configure_default_logging()

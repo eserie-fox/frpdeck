@@ -6,7 +6,7 @@ import logging
 import sys
 import threading
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterator
@@ -141,6 +141,7 @@ def load_instance_logging_config(
     instance_dir: Path,
     *,
     node: NodeBase | None = None,
+    stream_override: LoggingStream | None = None,
 ) -> tuple[NodeBase, ResolvedLoggingConfig]:
     """Load one instance's frpdeck logging config without mutating the logger."""
 
@@ -149,22 +150,27 @@ def load_instance_logging_config(
     resolved_instance_dir = instance_dir.resolve()
     resolved_node = node or load_node_config(resolved_instance_dir)
     config = resolved_node.frpdeck_logging
-    return resolved_node, ResolvedLoggingConfig(
+    resolved_config = ResolvedLoggingConfig(
         level=config.resolved_level(),
         format=config.format,
         file_path=config.resolved_log_path(resolved_instance_dir),
         retention_days=config.retention_days,
         stream=config.stream,
     )
+    if stream_override is not None:
+        resolved_config = replace(resolved_config, stream=stream_override)
+    return resolved_node, resolved_config
 
 
 def configure_instance_logging(
     instance_dir: Path,
     node: NodeBase,
+    *,
+    stream_override: LoggingStream | None = None,
 ) -> Path | None:
     """Configure logging from one loaded instance config."""
 
-    _, config = load_instance_logging_config(instance_dir, node=node)
+    _, config = load_instance_logging_config(instance_dir, node=node, stream_override=stream_override)
     return apply_logging_config(config, close_existing=True)
 
 
@@ -173,10 +179,11 @@ def instance_logging_context(
     instance_dir: Path,
     *,
     node: NodeBase | None = None,
+    stream_override: LoggingStream | None = None,
 ) -> Iterator[NodeBase]:
     """Temporarily apply one instance's frpdeck logging configuration."""
 
-    resolved_node, config = load_instance_logging_config(instance_dir, node=node)
+    resolved_node, config = load_instance_logging_config(instance_dir, node=node, stream_override=stream_override)
     snapshot = _capture_root_logger()
     try:
         apply_logging_config(config, close_existing=False)

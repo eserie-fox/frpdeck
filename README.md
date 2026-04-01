@@ -110,13 +110,19 @@ Apply an instance to the configured runtime paths:
 sudo frpdeck apply --instance ./my-client
 ```
 
+For offline install or replacement from a local FRP archive:
+
+```bash
+sudo frpdeck apply --instance ./my-client --archive /path/to/frp_0.65.0_linux_amd64.tar.gz
+```
+
 Inspect runtime state:
 
 ```bash
 frpdeck status --instance ./my-client
 ```
 
-Apply emits stage-by-stage progress in text mode so it is clear when validation, rendering, runtime sync, systemd install, and restart are happening.
+Apply emits stage-by-stage progress in text mode so it is clear when validation, rendering, binary download/install, runtime sync, systemd install, and restart are happening.
 
 Uninstall installed artifacts while keeping source configuration:
 
@@ -142,6 +148,8 @@ frpdeck uninstall --instance ./my-client --purge
 6. Run `sudo frpdeck apply --instance ./your-client`.
 7. Run `frpdeck status --instance ./your-client`.
 
+For offline binary management, `apply --archive`, `upgrade --archive`, and `binary.local_archive` are all supported.
+
 ### Server instance
 
 1. Run `frpdeck init server your-server`.
@@ -154,7 +162,7 @@ frpdeck uninstall --instance ./my-client --purge
 
 `frpdeck` ships with a local stdio MCP thin wrapper over structured proxy tools and read-only status resources. It is designed to bind to one instance directory at a time and is best used through a generated wrapper script.
 
-Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point your MCP client at that script. Prefer the generated wrapper over writing your own unless you have a specific reason to customize startup behavior. The wrapper binds to your chosen instance directory and embeds the Python interpreter detected when the script is created.
+Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point your MCP client at that script. Prefer the generated wrapper over writing your own unless you have a specific reason to customize startup behavior. The wrapper binds to your chosen instance directory and, by default, embeds the Python interpreter running `frpdeck` when the script is created. Use `--python /path/to/python` if you need to override that explicitly.
 
 In practice, wrapper scripts are most commonly generated for client instances, because proxy configuration is usually managed on the client side. That is a usage pattern rather than a hard restriction: the MCP wrapper is tied to an instance directory, not to a separate client-only mode in the documentation.
 

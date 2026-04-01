@@ -10,8 +10,14 @@ from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import ConfigValidationError, PermissionOperationError
 from frpdeck.domain.paths import resolve_path_from_instance
 from frpdeck.domain.state import NodeBase
-from frpdeck.services.runtime import command_exists
-from frpdeck.services.systemd_manager import daemon_reload, disable_service, remove_unit_file, stop_service
+from frpdeck.services.runtime import CommandResult, command_exists
+from frpdeck.services.systemd_manager import (
+    daemon_reload,
+    disable_service,
+    remove_unit_file,
+    reset_failed_service,
+    stop_service,
+)
 from frpdeck.storage.load import load_node_config
 
 
@@ -67,16 +73,16 @@ def uninstall_instance(instance_dir: Path, purge: bool = False) -> UninstallRepo
         stop_result = stop_service(node.service.service_name, check=False)
         if stop_result.returncode == 0:
             report.service_stopped = True
-        elif stop_result.stderr:
-            report.warnings.append(f"could not stop service cleanly: {stop_result.stderr}")
+        else:
+            _append_command_warning(report.warnings, "could not stop service cleanly", stop_result)
 
         disable_result = disable_service(node.service.service_name, check=False)
         if disable_result.returncode == 0:
             report.service_disabled = True
-        elif disable_result.stderr:
-            report.warnings.append(f"could not disable service cleanly: {disable_result.stderr}")
+        else:
+            _append_command_warning(report.warnings, "could not disable service cleanly", disable_result)
     else:
-        report.warnings.append("systemctl not available; skipped stop/disable/daemon-reload")
+        report.warnings.append("systemctl not available; skipped stop/disable/daemon-reload/reset-failed")
 
     cleanup_paths = _runtime_cleanup_paths(
         instance,
@@ -113,6 +119,13 @@ def uninstall_instance(instance_dir: Path, purge: bool = False) -> UninstallRepo
 
     if report.systemctl_available:
         daemon_reload()
+        reset_failed_result = reset_failed_service(node.service.service_name, check=False)
+        if reset_failed_result.returncode != 0:
+            _append_command_warning(
+                report.warnings,
+                "could not clear failed service state cleanly",
+                reset_failed_result,
+            )
 
     for path in cleanup_paths:
         _remove_path(path, report)
@@ -219,6 +232,11 @@ def _resolve_install_cleanup_target(
 def _looks_instance_private(path: Path, instance_name: str, service_name: str) -> bool:
     names = {part.lower() for part in path.parts}
     return instance_name.lower() in names or service_name.lower() in names
+
+
+def _append_command_warning(warnings: list[str], prefix: str, result: CommandResult) -> None:
+    detail = result.stderr or result.stdout or f"exit code {result.returncode}"
+    warnings.append(f"{prefix}: {detail}")
 
 
 def _remove_path(path: Path, report: UninstallReport, *, allow_instance_root: bool = False) -> None:

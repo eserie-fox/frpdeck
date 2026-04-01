@@ -97,6 +97,8 @@ Then manually run the generated wrapper over SSH before configuring an MCP clien
 - With an instance context, instance logging initialization is fail-fast; do not silently skip broken logging config
 - FRP log levels are constrained to `trace`, `debug`, `info`, `warn`, and `error`
 - Keep logging config loading separate from logger mutation: load/resolve first, apply second
+- Uninstall performs `systemctl reset-failed <service>.service` as a best-effort cleanup step after `daemon-reload`; failures should surface only as warnings
+- `apply` and `upgrade` may show simple download progress when fetching release archives; offline binary replacement should keep working through `--archive` or `binary.local_archive`
 
 ## Config Evolution Policy
 

@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 1.1.1
+
+- Fixed the generated MCP stdio wrapper so its default embedded Python interpreter is stable and no longer changes implicitly with `VIRTUAL_ENV`; `--python` remains the explicit override.
+- Further reduced MCP tool registration duplication by collapsing bound and generic wrapper generation into a single shape-driven helper path while keeping tool schemas and behavior stable.
+- Tightened the 1.1.x cleanup work around machine-readable CLI output, internal apply/proxy/MCP orchestration, and normalized HTTP request headers for release consistency.
+
 ## 1.1.0
 
 - Converged configuration further around the instance-centric model, including clearer defaults, scaffold resources, and packaged instance skeleton definitions.

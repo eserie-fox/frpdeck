@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Literal
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -118,6 +119,36 @@ def _server_info(mode: str, bound_instance_dir: Path | None, *, server_name: str
     )
 
 
+ToolShape = Literal["instance_only", "name", "proxy_spec", "update", "remove", "reload"]
+ToolArgs = tuple[Any, ...]
+ToolKwargs = dict[str, Any] | None
+ToolInvoker = Callable[[str | Path, ToolArgs, ToolKwargs], FacadeResult]
+ToolWrapperBuilder = Callable[[Path | None, ToolInvoker], Callable[..., FacadeResult]]
+
+
+@dataclass(slots=True, frozen=True)
+class ToolSpec:
+    name: str
+    operation: str
+    description: str
+    shape: ToolShape
+    caller_name: str
+
+
+_TOOL_SPECS: tuple[ToolSpec, ...] = (
+    ToolSpec("list_proxies", "list_proxies", "List proxies from proxies.yaml for an instance directory.", "instance_only", "list_proxies_tool"),
+    ToolSpec("get_proxy", "get_proxy", "Get a single proxy by name from proxies.yaml.", "name", "get_proxy_tool"),
+    ToolSpec("add_proxy", "add_proxy", "Add a structured proxy spec to proxies.yaml.", "proxy_spec", "add_proxy_tool"),
+    ToolSpec("update_proxy", "update_proxy", "Apply a structured patch to an existing proxy.", "update", "update_proxy_tool"),
+    ToolSpec("remove_proxy", "remove_proxy", "Remove a proxy, soft-disabling it by default.", "remove", "remove_proxy_tool"),
+    ToolSpec("enable_proxy", "enable_proxy", "Enable a proxy in proxies.yaml.", "name", "enable_proxy_tool"),
+    ToolSpec("disable_proxy", "disable_proxy", "Disable a proxy in proxies.yaml.", "name", "disable_proxy_tool"),
+    ToolSpec("validate_proxy_set", "validate_proxy_set", "Validate the current proxy set for an instance.", "instance_only", "validate_proxy_set_tool"),
+    ToolSpec("preview_proxy_changes", "preview_proxy_changes", "Preview rendered proxy outputs without mutating rendered/.", "instance_only", "preview_proxy_changes_tool"),
+    ToolSpec("apply_proxy_changes", "apply_proxy_changes", "Validate, render, sync, and optionally reload client proxy changes.", "reload", "apply_proxy_changes_tool"),
+)
+
+
 def register_tools(
     server: FastMCP,
     facade: ProxyFacade | None = None,
@@ -130,166 +161,170 @@ def register_tools(
     tool_facade = facade or ProxyFacade()
     audit_meta = {"mode": mode, "server_name": server_name}
 
-    @server.tool()
     def server_info() -> ServerInfoResult:
         """Return lightweight MCP diagnostic information for this server instance."""
         return _server_info(mode, bound_instance_dir, server_name=server_name)
 
+    server.add_tool(
+        server_info,
+        name="server_info",
+        description="Return lightweight MCP diagnostic information for this server instance.",
+    )
+
+    if mode == "bound" and bound_instance_dir is None:
+        raise ValueError("bound MCP mode requires a bound_instance_dir")
+
+    for spec in _TOOL_SPECS:
+        server.add_tool(
+            _build_tool_wrapper(
+                spec,
+                facade=tool_facade,
+                mode=mode,
+                bound_instance_dir=bound_instance_dir,
+                audit_meta=audit_meta,
+            ),
+            name=spec.name,
+            description=spec.description,
+        )
+
+
+def _build_tool_wrapper(
+    spec: ToolSpec,
+    *,
+    facade: ProxyFacade,
+    mode: str,
+    bound_instance_dir: Path | None,
+    audit_meta: dict[str, Any],
+):
     if mode == "bound":
-        if bound_instance_dir is None:
-            raise ValueError("bound MCP mode requires a bound_instance_dir")
+        assert bound_instance_dir is not None
 
-        @server.tool()
-        def list_proxies() -> FacadeResult:
-            """List proxies from proxies.yaml for the bound instance directory."""
-            return _safe_facade_call("list_proxies", bound_instance_dir, lambda: list_proxies_tool(bound_instance_dir, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
-
-        @server.tool()
-        def get_proxy(name: str) -> FacadeResult:
-            """Get a single proxy by name from proxies.yaml."""
-            return _safe_facade_call("get_proxy", bound_instance_dir, lambda: get_proxy_tool(bound_instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
-
-        @server.tool()
-        def add_proxy(proxy_spec: dict[str, Any]) -> FacadeResult:
-            """Add a structured proxy spec to proxies.yaml."""
-            return _safe_facade_call("add_proxy", bound_instance_dir, lambda: add_proxy_tool(bound_instance_dir, proxy_spec, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
-
-        @server.tool()
-        def update_proxy(name: str, patch_spec: dict[str, Any]) -> FacadeResult:
-            """Apply a structured patch to an existing proxy."""
-            return _safe_facade_call(
-                "update_proxy",
-                bound_instance_dir,
-                lambda: update_proxy_tool(bound_instance_dir, name, patch_spec, facade=tool_facade),
-                audit_source="mcp",
-                audit_meta=audit_meta,
-            )
-
-        @server.tool()
-        def remove_proxy(name: str, soft: bool = True) -> FacadeResult:
-            """Remove a proxy, soft-disabling it by default."""
-            return _safe_facade_call(
-                "remove_proxy",
-                bound_instance_dir,
-                lambda: remove_proxy_tool(bound_instance_dir, name, soft=soft, facade=tool_facade),
-                audit_source="mcp",
-                audit_meta=audit_meta,
-            )
-
-        @server.tool()
-        def enable_proxy(name: str) -> FacadeResult:
-            """Enable a proxy in proxies.yaml."""
-            return _safe_facade_call("enable_proxy", bound_instance_dir, lambda: enable_proxy_tool(bound_instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
-
-        @server.tool()
-        def disable_proxy(name: str) -> FacadeResult:
-            """Disable a proxy in proxies.yaml."""
-            return _safe_facade_call("disable_proxy", bound_instance_dir, lambda: disable_proxy_tool(bound_instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
-
-        @server.tool()
-        def validate_proxy_set() -> FacadeResult:
-            """Validate the current proxy set for the bound instance."""
-            return _safe_facade_call(
-                "validate_proxy_set",
-                bound_instance_dir,
-                lambda: validate_proxy_set_tool(bound_instance_dir, facade=tool_facade),
-                audit_source="mcp",
-                audit_meta=audit_meta,
-            )
-
-        @server.tool()
-        def preview_proxy_changes() -> FacadeResult:
-            """Preview rendered proxy outputs without mutating rendered/."""
-            return _safe_facade_call(
-                "preview_proxy_changes",
-                bound_instance_dir,
-                lambda: preview_proxy_changes_tool(bound_instance_dir, facade=tool_facade),
-                audit_source="mcp",
-                audit_meta=audit_meta,
-            )
-
-        @server.tool()
-        def apply_proxy_changes(reload: bool = True) -> FacadeResult:
-            """Validate, render, sync, and optionally reload client proxy changes."""
-            return _safe_facade_call(
-                "apply_proxy_changes",
-                bound_instance_dir,
-                lambda: apply_proxy_changes_tool(bound_instance_dir, reload=reload, facade=tool_facade),
-                audit_source="mcp",
-                audit_meta=audit_meta,
-            )
-        return
-
-    @server.tool()
-    def list_proxies(instance_dir: str) -> FacadeResult:
-        """List proxies from proxies.yaml for an instance directory."""
-        return _safe_facade_call("list_proxies", instance_dir, lambda: list_proxies_tool(instance_dir, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
-
-    @server.tool()
-    def get_proxy(instance_dir: str, name: str) -> FacadeResult:
-        """Get a single proxy by name from proxies.yaml."""
-        return _safe_facade_call("get_proxy", instance_dir, lambda: get_proxy_tool(instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
-
-    @server.tool()
-    def add_proxy(instance_dir: str, proxy_spec: dict[str, Any]) -> FacadeResult:
-        """Add a structured proxy spec to proxies.yaml."""
-        return _safe_facade_call("add_proxy", instance_dir, lambda: add_proxy_tool(instance_dir, proxy_spec, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
-
-    @server.tool()
-    def update_proxy(instance_dir: str, name: str, patch_spec: dict[str, Any]) -> FacadeResult:
-        """Apply a structured patch to an existing proxy."""
-        return _safe_facade_call(
-            "update_proxy",
+    def invoke(instance_dir: str | Path, args: ToolArgs = (), kwargs: ToolKwargs = None) -> FacadeResult:
+        return _call_tool(
+            spec,
             instance_dir,
-            lambda: update_proxy_tool(instance_dir, name, patch_spec, facade=tool_facade),
-            audit_source="mcp",
+            facade=facade,
             audit_meta=audit_meta,
+            args=args,
+            kwargs=kwargs,
         )
 
-    @server.tool()
-    def remove_proxy(instance_dir: str, name: str, soft: bool = True) -> FacadeResult:
-        """Remove a proxy, soft-disabling it by default."""
-        return _safe_facade_call(
-            "remove_proxy",
-            instance_dir,
-            lambda: remove_proxy_tool(instance_dir, name, soft=soft, facade=tool_facade),
-            audit_source="mcp",
-            audit_meta=audit_meta,
-        )
+    try:
+        builder = _SHAPE_BUILDERS[spec.shape]
+    except KeyError as exc:
+        raise ValueError(f"unsupported MCP tool shape: {spec.shape}") from exc
+    return builder(bound_instance_dir, invoke)
 
-    @server.tool()
-    def enable_proxy(instance_dir: str, name: str) -> FacadeResult:
-        """Enable a proxy in proxies.yaml."""
-        return _safe_facade_call("enable_proxy", instance_dir, lambda: enable_proxy_tool(instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
-    @server.tool()
-    def disable_proxy(instance_dir: str, name: str) -> FacadeResult:
-        """Disable a proxy in proxies.yaml."""
-        return _safe_facade_call("disable_proxy", instance_dir, lambda: disable_proxy_tool(instance_dir, name, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
+def _call_tool(
+    spec: ToolSpec,
+    instance_dir: str | Path,
+    *,
+    facade: ProxyFacade,
+    audit_meta: dict[str, Any],
+    args: tuple[Any, ...] = (),
+    kwargs: dict[str, Any] | None = None,
+) -> FacadeResult:
+    caller = _resolve_tool_caller(spec)
+    return _safe_facade_call(
+        spec.operation,
+        instance_dir,
+        lambda: caller(instance_dir, *args, facade=facade, **(kwargs or {})),
+        audit_source="mcp",
+        audit_meta=audit_meta,
+    )
 
-    @server.tool()
-    def validate_proxy_set(instance_dir: str) -> FacadeResult:
-        """Validate the current proxy set for an instance."""
-        return _safe_facade_call("validate_proxy_set", instance_dir, lambda: validate_proxy_set_tool(instance_dir, facade=tool_facade), audit_source="mcp", audit_meta=audit_meta)
 
-    @server.tool()
-    def preview_proxy_changes(instance_dir: str) -> FacadeResult:
-        """Preview rendered proxy outputs without mutating rendered/."""
-        return _safe_facade_call(
-            "preview_proxy_changes",
-            instance_dir,
-            lambda: preview_proxy_changes_tool(instance_dir, facade=tool_facade),
-            audit_source="mcp",
-            audit_meta=audit_meta,
-        )
+def _resolve_tool_caller(spec: ToolSpec) -> Callable[..., FacadeResult]:
+    caller = globals().get(spec.caller_name)
+    if not callable(caller):
+        raise RuntimeError(f"invalid MCP tool caller: {spec.caller_name}")
+    return caller
 
-    @server.tool()
-    def apply_proxy_changes(instance_dir: str, reload: bool = True) -> FacadeResult:
-        """Validate, render, sync, and optionally reload client proxy changes."""
-        return _safe_facade_call(
-            "apply_proxy_changes",
-            instance_dir,
-            lambda: apply_proxy_changes_tool(instance_dir, reload=reload, facade=tool_facade),
-            audit_source="mcp",
-            audit_meta=audit_meta,
-        )
+
+def _build_instance_only_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
+    if bound_instance_dir is not None:
+        def tool() -> FacadeResult:
+            return invoke(bound_instance_dir)
+
+        return tool
+
+    def tool(instance_dir: str) -> FacadeResult:
+        return invoke(instance_dir)
+
+    return tool
+
+
+def _build_name_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
+    if bound_instance_dir is not None:
+        def tool(name: str) -> FacadeResult:
+            return invoke(bound_instance_dir, (name,))
+
+        return tool
+
+    def tool(instance_dir: str, name: str) -> FacadeResult:
+        return invoke(instance_dir, (name,))
+
+    return tool
+
+
+def _build_proxy_spec_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
+    if bound_instance_dir is not None:
+        def tool(proxy_spec: dict[str, Any]) -> FacadeResult:
+            return invoke(bound_instance_dir, (proxy_spec,))
+
+        return tool
+
+    def tool(instance_dir: str, proxy_spec: dict[str, Any]) -> FacadeResult:
+        return invoke(instance_dir, (proxy_spec,))
+
+    return tool
+
+
+def _build_update_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
+    if bound_instance_dir is not None:
+        def tool(name: str, patch_spec: dict[str, Any]) -> FacadeResult:
+            return invoke(bound_instance_dir, (name, patch_spec))
+
+        return tool
+
+    def tool(instance_dir: str, name: str, patch_spec: dict[str, Any]) -> FacadeResult:
+        return invoke(instance_dir, (name, patch_spec))
+
+    return tool
+
+
+def _build_remove_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
+    if bound_instance_dir is not None:
+        def tool(name: str, soft: bool = True) -> FacadeResult:
+            return invoke(bound_instance_dir, (name,), {"soft": soft})
+
+        return tool
+
+    def tool(instance_dir: str, name: str, soft: bool = True) -> FacadeResult:
+        return invoke(instance_dir, (name,), {"soft": soft})
+
+    return tool
+
+
+def _build_reload_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
+    if bound_instance_dir is not None:
+        def tool(reload: bool = True) -> FacadeResult:
+            return invoke(bound_instance_dir, (), {"reload": reload})
+
+        return tool
+
+    def tool(instance_dir: str, reload: bool = True) -> FacadeResult:
+        return invoke(instance_dir, (), {"reload": reload})
+
+    return tool
+
+
+_SHAPE_BUILDERS: dict[ToolShape, ToolWrapperBuilder] = {
+    "instance_only": _build_instance_only_tool,
+    "name": _build_name_tool,
+    "proxy_spec": _build_proxy_spec_tool,
+    "update": _build_update_tool,
+    "remove": _build_remove_tool,
+    "reload": _build_reload_tool,
+}

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, TypeVar
 
 import typer
 import yaml
@@ -23,14 +25,26 @@ from frpdeck.domain.errors import (
     ProxyNotFoundError,
     UnsupportedOperationError,
 )
-from frpdeck.domain.proxy import TcpProxyConfig
-from frpdeck.domain.proxy_management import ProxyUpdatePatch
+from frpdeck.domain.proxy import ProxyConfig, TcpProxyConfig
+from frpdeck.domain.proxy_management import ApplyReport, PreviewReport, ProxyMutationResult, ProxyUpdatePatch, ValidationReport
 from frpdeck.logging import instance_logging_context
 from frpdeck.services.proxy_manager import ProxyManager, load_proxy_spec_from_file
 
 
 proxy_app = typer.Typer(help="Structured local proxy management")
 MANAGER = ProxyManager()
+CommandResult = TypeVar("CommandResult")
+
+
+@dataclass(slots=True)
+class _ProxyCommandContext:
+    command: str
+    instance_dir: Path
+    json_output: bool
+
+    @property
+    def stream_override(self) -> str | None:
+        return "none" if self.json_output else None
 
 
 def register(app: typer.Typer) -> None:
@@ -43,16 +57,199 @@ def list_command(
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ) -> None:
     """List proxies from proxies.yaml."""
-    instance_dir = instance.resolve()
+    ctx = _command_context("proxy list", instance, json_output)
+    proxies = _run_proxy_action(ctx, lambda: MANAGER.list_proxies(ctx.instance_dir), errors=(ConfigLoadError,))
+    _emit_proxy_list(ctx, proxies)
+
+
+@proxy_app.command("show")
+def show_command(
+    name: str,
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Show a single proxy as YAML."""
+    ctx = _command_context("proxy show", instance, json_output)
+    proxy = _run_proxy_action(ctx, lambda: MANAGER.get_proxy(ctx.instance_dir, name), errors=(ConfigLoadError, ProxyNotFoundError))
+    _emit_proxy_show(ctx, proxy)
+
+
+@proxy_app.command("add")
+def add_command(
+    from_file: Path = typer.Option(..., "--from-file", exists=True, dir_okay=False, help="Proxy spec YAML file"),
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Add a proxy from a YAML spec file."""
+    ctx = _command_context("proxy add", instance, json_output)
+    result = _run_proxy_action(
+        ctx,
+        lambda: MANAGER.add_proxy(ctx.instance_dir, load_proxy_spec_from_file(from_file.resolve())),
+        errors=(ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError),
+    )
+    _emit_mutation_result(ctx, result)
+
+
+@proxy_app.command("add-tcp")
+def add_tcp_command(
+    name: str = typer.Option(..., "--name", help="Proxy name"),
+    local_ip: str = typer.Option("127.0.0.1", "--local-ip", help="Local IP"),
+    local_port: int = typer.Option(..., "--local-port", min=1, max=65535, help="Local port"),
+    remote_port: int = typer.Option(..., "--remote-port", min=1, max=65535, help="Remote port"),
+    description: str | None = typer.Option(None, "--description", help="Description"),
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Add a common TCP proxy without a spec file."""
+    ctx = _command_context("proxy add-tcp", instance, json_output)
+    spec = TcpProxyConfig(
+        name=name,
+        local_ip=local_ip,
+        local_port=local_port,
+        remote_port=remote_port,
+        description=description,
+    )
+    result = _run_proxy_action(
+        ctx,
+        lambda: MANAGER.add_proxy(ctx.instance_dir, spec),
+        errors=(ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError),
+    )
+    _emit_mutation_result(ctx, result)
+
+
+@proxy_app.command("update")
+def update_command(
+    name: str,
+    from_file: Path = typer.Option(..., "--from-file", exists=True, dir_okay=False, help="Patch YAML file"),
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Patch an existing proxy from a YAML file."""
+    ctx = _command_context("proxy update", instance, json_output)
+
+    def action() -> ProxyMutationResult:
+        patch = ProxyUpdatePatch.model_validate(load_proxy_spec_from_file(from_file.resolve()))
+        return MANAGER.update_proxy(ctx.instance_dir, name, patch)
+
+    result = _run_proxy_action(
+        ctx,
+        action,
+        errors=(ConfigLoadError, ProxyNotFoundError, ProxyAlreadyExistsError, ProxyConflictError, ValueError),
+    )
+    _emit_mutation_result(ctx, result)
+
+
+@proxy_app.command("enable")
+def enable_command(
+    name: str,
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Enable a proxy in proxies.yaml."""
+    ctx = _command_context("proxy enable", instance, json_output)
+    result = _run_proxy_action(ctx, lambda: MANAGER.enable_proxy(ctx.instance_dir, name), errors=(ConfigLoadError, ProxyNotFoundError))
+    _emit_mutation_result(ctx, result)
+
+
+@proxy_app.command("disable")
+def disable_command(
+    name: str,
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Disable a proxy in proxies.yaml."""
+    ctx = _command_context("proxy disable", instance, json_output)
+    result = _run_proxy_action(ctx, lambda: MANAGER.disable_proxy(ctx.instance_dir, name), errors=(ConfigLoadError, ProxyNotFoundError))
+    _emit_mutation_result(ctx, result)
+
+
+@proxy_app.command("remove")
+def remove_command(
+    name: str,
+    hard: bool = typer.Option(False, "--hard", help="Permanently delete instead of soft-disabling"),
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Remove a proxy, soft by default."""
+    ctx = _command_context("proxy remove", instance, json_output)
+    result = _run_proxy_action(
+        ctx,
+        lambda: MANAGER.remove_proxy(ctx.instance_dir, name, soft=not hard),
+        errors=(ConfigLoadError, ProxyNotFoundError),
+    )
+    _emit_mutation_result(ctx, result)
+
+
+@proxy_app.command("validate")
+def validate_command(
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Validate only the proxy set in proxies.yaml."""
+    ctx = _command_context("proxy validate", instance, json_output)
+    report = _run_proxy_action(ctx, lambda: MANAGER.validate_proxy_set(ctx.instance_dir), errors=(ConfigLoadError,))
+    _emit_validation_result(ctx, report)
+
+
+@proxy_app.command("preview")
+def preview_command(
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Preview proxy render results without touching rendered/."""
+    ctx = _command_context("proxy preview", instance, json_output)
+    report = _run_proxy_action(
+        ctx,
+        lambda: MANAGER.preview_proxy_changes(ctx.instance_dir),
+        errors=(ConfigLoadError, UnsupportedOperationError),
+    )
+    _emit_preview_result(ctx, report)
+
+
+@proxy_app.command("apply")
+def apply_command(
+    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
+    no_reload: bool = typer.Option(False, "--no-reload", help="Render and sync FRP runtime config without frpc reload"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+) -> None:
+    """Validate, render, sync FRP runtime config, and optionally reload frpc."""
+    ctx = _command_context("proxy apply", instance, json_output)
+
+    def action() -> tuple[list[str], ApplyReport]:
+        applied_proxies = [proxy.name for proxy in MANAGER.list_proxies(ctx.instance_dir) if proxy.enabled]
+        report = MANAGER.apply_proxy_changes(ctx.instance_dir, reload=not no_reload)
+        return applied_proxies, report
+
+    applied_proxies, report = _run_proxy_action(
+        ctx,
+        action,
+        errors=(ConfigLoadError, UnsupportedOperationError, ProxyApplyError),
+    )
+    _emit_apply_result(ctx, report, applied_proxies=applied_proxies)
+
+
+def _command_context(command: str, instance: Path, json_output: bool) -> _ProxyCommandContext:
+    return _ProxyCommandContext(command=command, instance_dir=instance.resolve(), json_output=json_output)
+
+
+def _run_proxy_action(
+    ctx: _ProxyCommandContext,
+    action: Callable[[], CommandResult],
+    *,
+    errors: tuple[type[BaseException], ...],
+) -> CommandResult:
     try:
-        with instance_logging_context(instance_dir):
-            proxies = MANAGER.list_proxies(instance_dir)
-    except ConfigLoadError as exc:
-        _fail("proxy list", instance_dir, str(exc), json_output=json_output)
-    if json_output:
+        with instance_logging_context(ctx.instance_dir, stream_override=ctx.stream_override):
+            return action()
+    except errors as exc:
+        _fail(ctx.command, ctx.instance_dir, str(exc), json_output=ctx.json_output)
+
+
+def _emit_proxy_list(ctx: _ProxyCommandContext, proxies: list[ProxyConfig]) -> None:
+    if ctx.json_output:
         emit_json_envelope(
-            command="proxy list",
-            instance=instance_dir,
+            command=ctx.command,
+            instance=ctx.instance_dir,
             ok=True,
             data={"count": len(proxies), "proxies": [serialize_proxy(proxy) for proxy in proxies]},
         )
@@ -69,175 +266,32 @@ def list_command(
         )
 
 
-@proxy_app.command("show")
-def show_command(
-    name: str,
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Show a single proxy as YAML."""
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            proxy = MANAGER.get_proxy(instance_dir, name)
-    except (ConfigLoadError, ProxyNotFoundError) as exc:
-        _fail("proxy show", instance_dir, str(exc), json_output=json_output)
-    if json_output:
-        emit_json_envelope(command="proxy show", instance=instance_dir, ok=True, data={"proxy": serialize_proxy(proxy)})
+def _emit_proxy_show(ctx: _ProxyCommandContext, proxy: ProxyConfig) -> None:
+    if ctx.json_output:
+        emit_json_envelope(command=ctx.command, instance=ctx.instance_dir, ok=True, data={"proxy": serialize_proxy(proxy)})
         return
     typer.echo(yaml.safe_dump(proxy.model_dump(mode="json", exclude_none=True), sort_keys=False).strip())
 
 
-@proxy_app.command("add")
-def add_command(
-    from_file: Path = typer.Option(..., "--from-file", exists=True, dir_okay=False, help="Proxy spec YAML file"),
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Add a proxy from a YAML spec file."""
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            result = MANAGER.add_proxy(instance_dir, load_proxy_spec_from_file(from_file.resolve()))
-    except (ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError) as exc:
-        _fail("proxy add", instance_dir, str(exc), json_output=json_output)
-    if json_output:
-        emit_json_envelope(command="proxy add", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
-        return
-    typer.echo(result.message)
-    _emit_warnings(result.warnings)
-
-
-@proxy_app.command("add-tcp")
-def add_tcp_command(
-    name: str = typer.Option(..., "--name", help="Proxy name"),
-    local_ip: str = typer.Option("127.0.0.1", "--local-ip", help="Local IP"),
-    local_port: int = typer.Option(..., "--local-port", min=1, max=65535, help="Local port"),
-    remote_port: int = typer.Option(..., "--remote-port", min=1, max=65535, help="Remote port"),
-    description: str | None = typer.Option(None, "--description", help="Description"),
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Add a common TCP proxy without a spec file."""
-    spec = TcpProxyConfig(
-        name=name,
-        local_ip=local_ip,
-        local_port=local_port,
-        remote_port=remote_port,
-        description=description,
-    )
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            result = MANAGER.add_proxy(instance_dir, spec)
-    except (ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError) as exc:
-        _fail("proxy add-tcp", instance_dir, str(exc), json_output=json_output)
-    if json_output:
-        emit_json_envelope(command="proxy add-tcp", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
-        return
-    typer.echo(result.message)
-    _emit_warnings(result.warnings)
-
-
-@proxy_app.command("update")
-def update_command(
-    name: str,
-    from_file: Path = typer.Option(..., "--from-file", exists=True, dir_okay=False, help="Patch YAML file"),
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Patch an existing proxy from a YAML file."""
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            patch = ProxyUpdatePatch.model_validate(load_proxy_spec_from_file(from_file.resolve()))
-            result = MANAGER.update_proxy(instance_dir, name, patch)
-    except (ConfigLoadError, ProxyNotFoundError, ProxyAlreadyExistsError, ProxyConflictError, ValueError) as exc:
-        _fail("proxy update", instance_dir, str(exc), json_output=json_output)
-    if json_output:
-        emit_json_envelope(command="proxy update", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
-        return
-    typer.echo(result.message)
-    _emit_warnings(result.warnings)
-
-
-@proxy_app.command("enable")
-def enable_command(
-    name: str,
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Enable a proxy in proxies.yaml."""
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            result = MANAGER.enable_proxy(instance_dir, name)
-    except (ConfigLoadError, ProxyNotFoundError) as exc:
-        _fail("proxy enable", instance_dir, str(exc), json_output=json_output)
-    if json_output:
-        emit_json_envelope(command="proxy enable", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
-        return
-    typer.echo(result.message)
-    _emit_warnings(result.warnings)
-
-
-@proxy_app.command("disable")
-def disable_command(
-    name: str,
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Disable a proxy in proxies.yaml."""
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            result = MANAGER.disable_proxy(instance_dir, name)
-    except (ConfigLoadError, ProxyNotFoundError) as exc:
-        _fail("proxy disable", instance_dir, str(exc), json_output=json_output)
-    if json_output:
-        emit_json_envelope(command="proxy disable", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
-        return
-    typer.echo(result.message)
-    _emit_warnings(result.warnings)
-
-
-@proxy_app.command("remove")
-def remove_command(
-    name: str,
-    hard: bool = typer.Option(False, "--hard", help="Permanently delete instead of soft-disabling"),
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Remove a proxy, soft by default."""
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            result = MANAGER.remove_proxy(instance_dir, name, soft=not hard)
-    except (ConfigLoadError, ProxyNotFoundError) as exc:
-        _fail("proxy remove", instance_dir, str(exc), json_output=json_output)
-    if json_output:
-        emit_json_envelope(command="proxy remove", instance=instance_dir, ok=True, data=serialize_mutation_result(result), warnings=result.warnings)
-        return
-    typer.echo(result.message)
-    _emit_warnings(result.warnings)
-
-
-@proxy_app.command("validate")
-def validate_command(
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Validate only the proxy set in proxies.yaml."""
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            report = MANAGER.validate_proxy_set(instance_dir)
-    except ConfigLoadError as exc:
-        _fail("proxy validate", instance_dir, str(exc), json_output=json_output)
-    if json_output:
+def _emit_mutation_result(ctx: _ProxyCommandContext, result: ProxyMutationResult) -> None:
+    if ctx.json_output:
         emit_json_envelope(
-            command="proxy validate",
-            instance=instance_dir,
+            command=ctx.command,
+            instance=ctx.instance_dir,
+            ok=True,
+            data=serialize_mutation_result(result),
+            warnings=result.warnings,
+        )
+        return
+    typer.echo(result.message)
+    _emit_warnings(result.warnings)
+
+
+def _emit_validation_result(ctx: _ProxyCommandContext, report: ValidationReport) -> None:
+    if ctx.json_output:
+        emit_json_envelope(
+            command=ctx.command,
+            instance=ctx.instance_dir,
             ok=report.ok,
             data=serialize_validation_report(report),
             errors=report.errors,
@@ -247,30 +301,17 @@ def validate_command(
             raise typer.Exit(code=1)
         return
     if not report.ok:
-        for error in report.errors:
-            typer.echo(f"ERROR: {error}")
-        for warning in report.warnings:
-            typer.echo(f"WARNING: {warning}")
+        _emit_errors(report.errors)
+        _emit_warnings(report.warnings)
         raise typer.Exit(code=1)
     typer.echo("proxy validation passed")
 
 
-@proxy_app.command("preview")
-def preview_command(
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Preview proxy render results without touching rendered/."""
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            report = MANAGER.preview_proxy_changes(instance_dir)
-    except (ConfigLoadError, UnsupportedOperationError) as exc:
-        _fail("proxy preview", instance_dir, str(exc), json_output=json_output)
-    if json_output:
+def _emit_preview_result(ctx: _ProxyCommandContext, report: PreviewReport) -> None:
+    if ctx.json_output:
         emit_json_envelope(
-            command="proxy preview",
-            instance=instance_dir,
+            command=ctx.command,
+            instance=ctx.instance_dir,
             ok=report.ok,
             data=serialize_preview_report(report),
             errors=report.errors,
@@ -279,10 +320,8 @@ def preview_command(
         if not report.ok:
             raise typer.Exit(code=1)
         return
-    for error in report.errors:
-        typer.echo(f"ERROR: {error}")
-    for warning in report.warnings:
-        typer.echo(f"WARNING: {warning}")
+    _emit_errors(report.errors)
+    _emit_warnings(report.warnings)
     typer.echo(f"enabled: {', '.join(report.enabled_proxies) if report.enabled_proxies else '-'}")
     typer.echo(f"disabled: {', '.join(report.disabled_proxies) if report.disabled_proxies else '-'}")
     typer.echo(f"rendered files: {', '.join(report.rendered_proxy_files) if report.rendered_proxy_files else '-'}")
@@ -290,24 +329,11 @@ def preview_command(
         raise typer.Exit(code=1)
 
 
-@proxy_app.command("apply")
-def apply_command(
-    instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
-    no_reload: bool = typer.Option(False, "--no-reload", help="Render and sync FRP runtime config without frpc reload"),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
-) -> None:
-    """Validate, render, sync FRP runtime config, and optionally reload frpc."""
-    instance_dir = instance.resolve()
-    try:
-        with instance_logging_context(instance_dir):
-            applied_proxies = [proxy.name for proxy in MANAGER.list_proxies(instance_dir) if proxy.enabled]
-            report = MANAGER.apply_proxy_changes(instance_dir, reload=not no_reload)
-    except (ConfigLoadError, UnsupportedOperationError, ProxyApplyError) as exc:
-        _fail("proxy apply", instance_dir, str(exc), json_output=json_output)
-    if json_output:
+def _emit_apply_result(ctx: _ProxyCommandContext, report: ApplyReport, *, applied_proxies: list[str]) -> None:
+    if ctx.json_output:
         emit_json_envelope(
-            command="proxy apply",
-            instance=instance_dir,
+            command=ctx.command,
+            instance=ctx.instance_dir,
             ok=report.ok,
             data=serialize_apply_report(report, applied_proxies=applied_proxies),
             errors=report.errors,
@@ -316,10 +342,8 @@ def apply_command(
         if not report.ok:
             raise typer.Exit(code=1)
         return
-    for error in report.errors:
-        typer.echo(f"ERROR: {error}")
-    for warning in report.warnings:
-        typer.echo(f"WARNING: {warning}")
+    _emit_errors(report.errors)
+    _emit_warnings(report.warnings)
     if not report.ok:
         raise typer.Exit(code=1)
     typer.echo(f"rendered files: {', '.join(report.rendered_proxy_files) if report.rendered_proxy_files else '-'}")
@@ -349,6 +373,11 @@ def _fail(command: str, instance: Path, message: str, *, json_output: bool) -> N
     else:
         typer.echo(f"ERROR: {message}")
     raise typer.Exit(code=1)
+
+
+def _emit_errors(errors: list[str]) -> None:
+    for error in errors:
+        typer.echo(f"ERROR: {error}")
 
 
 def _emit_warnings(warnings: list[str]) -> None:

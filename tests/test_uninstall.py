@@ -5,6 +5,8 @@ import pytest
 from typer.testing import CliRunner
 
 from frpdeck.cli import app
+from frpdeck.services.runtime import CommandResult
+from frpdeck.services.uninstall import uninstall_instance
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node
 
@@ -90,3 +92,45 @@ def test_uninstall_rejects_dangerous_paths(monkeypatch, tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "refusing to delete dangerous path: /" in result.stdout
+
+
+def test_uninstall_resets_failed_service_state_best_effort(monkeypatch, tmp_path: Path) -> None:
+    _write_instance(tmp_path)
+    calls: list[str] = []
+
+    def _result(name: str, returncode: int = 0, *, stdout: str = "", stderr: str = "") -> CommandResult:
+        return CommandResult(
+            args=["systemctl", name, "demo-client-frpc.service"],
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    monkeypatch.setattr("frpdeck.services.uninstall.command_exists", lambda command: True)
+    monkeypatch.setattr(
+        "frpdeck.services.uninstall.stop_service",
+        lambda service_name, check=False: calls.append("stop") or _result("stop"),
+    )
+    monkeypatch.setattr(
+        "frpdeck.services.uninstall.disable_service",
+        lambda service_name, check=False: calls.append("disable") or _result("disable"),
+    )
+    monkeypatch.setattr(
+        "frpdeck.services.uninstall.remove_unit_file",
+        lambda unit_path: calls.append("remove_unit"),
+    )
+    monkeypatch.setattr(
+        "frpdeck.services.uninstall.daemon_reload",
+        lambda: calls.append("daemon_reload"),
+    )
+    monkeypatch.setattr(
+        "frpdeck.services.uninstall.reset_failed_service",
+        lambda service_name, check=False: calls.append("reset_failed")
+        or _result("reset-failed", returncode=1, stderr="failed state already cleared"),
+    )
+
+    report = uninstall_instance(tmp_path)
+
+    assert calls.index("daemon_reload") < calls.index("reset_failed")
+    assert any("could not clear failed service state cleanly" in warning for warning in report.warnings)
+    assert any("failed state already cleared" in warning for warning in report.warnings)

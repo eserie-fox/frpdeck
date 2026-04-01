@@ -153,7 +153,13 @@ def _render_systemd(instance_dir: Path, node: NodeBase, template_name: str) -> s
     low_port = False
     if node.role == Role.SERVER:
         assert isinstance(node, ServerNodeConfig)
-        for value in [node.server.bind_port, node.server.vhost_http_port, node.server.vhost_https_port]:
+        for value in [
+            node.server.bind_port,
+            node.server.kcp_bind_port,
+            node.server.quic_bind_port,
+            node.server.vhost_http_port,
+            node.server.vhost_https_port,
+        ]:
             if value is not None and value < 1024:
                 low_port = True
                 break

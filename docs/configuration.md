@@ -169,6 +169,16 @@ This applies to:
 
 Operational code should resolve paths explicitly at runtime, not during raw config loading.
 
+## Binary Source Selection
+
+When FRP binaries need to be installed or replaced, frpdeck uses the following sources:
+
+- `apply --archive /path/to/frp_*.tar.gz` or `upgrade --archive /path/to/frp_*.tar.gz`
+- `binary.local_archive` from `node.yaml`
+- GitHub release download based on `binary.*`
+
+`apply` and `upgrade` surface download-stage progress in human-readable text mode. Download failures remain fatal and are reported through the existing CLI error path; there is no retry or compatibility fallback layer in the current design.
+
 ## Logging Responsibilities
 
 Logging setup is split into two explicit stages:

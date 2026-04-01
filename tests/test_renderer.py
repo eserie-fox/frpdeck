@@ -44,3 +44,38 @@ def test_server_render_outputs_frps_toml(tmp_path: Path) -> None:
 
     assert summary.main_config_path.name == "frps.toml"
     assert summary.main_config_path.exists()
+
+
+def test_server_render_includes_kcp_bind_port_when_configured(tmp_path: Path) -> None:
+    node = build_server_node(
+        overrides={
+            "server": {
+                "bind_port": 48265,
+                "kcp_bind_port": 48265,
+            }
+        }
+    )
+
+    summary = render_instance(tmp_path, node)
+    main_config = summary.main_config_path.read_text(encoding="utf-8")
+
+    assert "bindPort = 48265" in main_config
+    assert "kcpBindPort = 48265" in main_config
+
+
+def test_server_render_adds_low_port_capability_for_low_kcp_bind_port(tmp_path: Path) -> None:
+    node = build_server_node(
+        overrides={
+            "server": {
+                "bind_port": 7000,
+                "kcp_bind_port": 443,
+                "vhost_http_port": 8080,
+                "vhost_https_port": 8443,
+            }
+        }
+    )
+
+    summary = render_instance(tmp_path, node)
+    unit_content = summary.systemd_unit_path.read_text(encoding="utf-8")
+
+    assert "AmbientCapabilities=CAP_NET_BIND_SERVICE" in unit_content

@@ -19,7 +19,7 @@ def register(app: typer.Typer) -> None:
     ) -> None:
         """Show instance and service status."""
         instance_dir = instance.resolve()
-        with instance_logging_context(instance_dir):
+        with instance_logging_context(instance_dir, stream_override="none" if json_output else None):
             summary = StatusService().get_instance_status(instance_dir)
         if json_output:
             emit_json_envelope(
