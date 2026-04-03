@@ -68,15 +68,3 @@ class PreviewReport(BaseModel):
     disabled_proxies: list[str] = Field(default_factory=list)
     rendered_proxy_files: list[str] = Field(default_factory=list)
 
-
-class ApplyReport(BaseModel):
-    """Apply result for proxy rendering and reload."""
-
-    ok: bool
-    step: str
-    errors: list[str] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
-    rendered_proxy_files: list[str] = Field(default_factory=list)
-    reload_requested: bool = True
-    reloaded: bool = False
-    reload_output: str | None = None

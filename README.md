@@ -1,13 +1,13 @@
 # frpdeck
 
-`frpdeck` is a lightweight Python 3.11+ CLI for managing FRP instances from structured source files. It focuses on practical single-host operations: initialize instance directories, validate configuration, render runtime files, apply changes locally, inspect state, and maintain structured proxy definitions without introducing a larger control plane.
+`frpdeck` is a lightweight Python 3.11+ CLI for managing FRP instances from structured source files. It focuses on practical single-host operations: initialize instance directories, validate configuration, render generated artifacts, sync managed runtime files, apply changes locally, inspect state, and maintain structured proxy definitions without introducing a larger control plane.
 
 It is also MCP-friendly. `frpdeck` includes a local stdio MCP thin wrapper so an LLM can assist with structured proxy maintenance against one bound instance directory at a time.
 
 ## Highlights
 
 - Lightweight FRP deployment and maintenance workflows for client and server instances.
-- Structured proxy management backed by `proxies.yaml`, with preview and apply support.
+- Structured proxy management backed by `proxies.yaml`, with import, typed add, update, remove, and preview support.
 - Stable JSON outputs for automation and scripting.
 - Append-only audit logging and revision snapshots for write operations.
 - Local stdio MCP support for LLM-assisted proxy maintenance.
@@ -50,10 +50,11 @@ Key design notes now live under `docs/`:
 ## Features
 
 - `init` creates a new client or server instance directory.
-- `render` generates FRP TOML, proxy includes, and systemd units under `rendered/`.
-- `validate` checks schema, placeholder values, token sources, path resolution, and simple proxy conflicts.
-- `apply` validates, renders, installs binaries if needed, syncs runtime files, installs the systemd unit, and restarts the service.
-- `reload` calls `frpc reload -c ...` for client instances.
+- `validate` checks source config only: schema, placeholder values, token sources, path resolution, and simple proxy conflicts.
+- `render` generates FRP TOML, proxy includes, and systemd units under `rendered/` only.
+- `sync` mirrors managed files from `rendered/` into `runtime/config` only.
+- `reload` calls `frpc reload -c ...` for client instances using the current `runtime/config`.
+- `apply` validates, renders, syncs runtime files, installs binaries if needed, installs the systemd unit, and restarts the service.
 - `restart` and `status` operate on the configured systemd service.
 - `check-update` and `upgrade` support GitHub latest releases and offline archives.
 - `doctor` checks Linux/systemd availability, instance files, and basic write permissions.
@@ -81,6 +82,8 @@ Initialize a client instance:
 frpdeck init client my-client
 ```
 
+The generated client scaffold includes a sample HTTP proxy in `proxies.yaml` so the route fields are visible in the initial config shape.
+
 Edit the generated configuration and secret material:
 
 ```bash
@@ -104,6 +107,12 @@ Render generated files:
 frpdeck render --instance ./my-client
 ```
 
+Mirror the rendered snapshot into runtime config without restarting anything:
+
+```bash
+sudo frpdeck sync --instance ./my-client
+```
+
 Apply an instance to the configured runtime paths:
 
 ```bash
@@ -123,6 +132,15 @@ frpdeck status --instance ./my-client
 ```
 
 Apply emits stage-by-stage progress in text mode so it is clear when validation, rendering, binary download/install, runtime sync, systemd install, and restart are happening.
+
+## Command semantics
+
+- `validate` reads `node.yaml` and `proxies.yaml`, validates them, and exits. It does not write `rendered/` or `runtime/config`.
+- `render` writes the full generated snapshot into `rendered/`. It does not touch `runtime/config`, reload FRP, or restart systemd.
+- `sync` mirrors the managed rendered snapshot into `runtime/config`. It does not run validation, rendering, reload, or restart logic.
+- `reload` asks `frpc` to reload using the current `runtime/config`. If runtime config is missing, run `sync` or `apply` first.
+- `apply` is the full operational path: validate, render, sync, install/upgrade the managed binary if needed, install the systemd unit, and restart the service.
+- `proxy preview` is a temporary client-side preview of proxy include output. It does not modify `rendered/`. Top-level `render` writes the full instance snapshot into `rendered/`.
 
 Uninstall installed artifacts while keeping source configuration:
 
@@ -153,14 +171,138 @@ For offline binary management, `apply --archive`, `upgrade --archive`, and `bina
 ### Server instance
 
 1. Run `frpdeck init server your-server`.
-2. Replace `PLEASE_FILL_DOMAIN` and create `secrets/token.txt`.
-3. Run `frpdeck validate --instance ./your-server`.
-4. Run `frpdeck render --instance ./your-server`.
-5. Run `sudo frpdeck apply --instance ./your-server`.
+2. Create `secrets/token.txt`.
+3. If you want FRP vhost routing, explicitly set `server.vhost_http_port` and/or `server.vhost_https_port` in `node.yaml`.
+4. If you want subdomain-based routing, also set `server.subdomain_host`.
+5. Run `frpdeck validate --instance ./your-server`.
+6. Run `frpdeck render --instance ./your-server`.
+7. Run `sudo frpdeck apply --instance ./your-server`.
+
+## Server vhost modes
+
+By default, a new server instance does not set `server.vhost_http_port`, `server.vhost_https_port`, or `server.subdomain_host`.
+
+- With the default scaffold, rendered `frps.toml` does not bind `80` or `443` and does not enable subdomain host handling.
+- When you explicitly set `server.vhost_http_port` or `server.vhost_https_port`, `frpdeck` renders those values into `frps.toml`.
+- When you explicitly set `server.subdomain_host`, `frpdeck` renders `subDomainHost`.
+
+Example server config with vhost enabled:
+
+```yaml
+server:
+  bind_addr: 0.0.0.0
+  bind_port: 7000
+  vhost_http_port: 80
+  vhost_https_port: 443
+  subdomain_host: frp.example.com
+  log:
+    to: runtime/logs/frps.log
+    level: info
+    max_days: 7
+    disable_print_color: true
+  auth:
+    method: token
+    token_file: secrets/token.txt
+```
+
+## HTTP/HTTPS proxies
+
+Client proxy definitions for `http` and `https` stay in `proxies.yaml` with the existing snake_case source config style.
+
+HTTP with `custom_domains`:
+
+```yaml
+proxies:
+  - name: app_http
+    type: http
+    local_ip: 127.0.0.1
+    local_port: 8080
+    custom_domains:
+      - app.example.com
+```
+
+HTTPS with `custom_domains`:
+
+```yaml
+proxies:
+  - name: app_https
+    type: https
+    local_ip: 127.0.0.1
+    local_port: 8443
+    custom_domains:
+      - secure.example.com
+```
+
+HTTP with `subdomain`:
+
+```yaml
+proxies:
+  - name: app_subdomain
+    type: http
+    local_ip: 127.0.0.1
+    local_port: 8080
+    subdomain: app
+```
+
+`custom_domains` and `subdomain` may be set together. That is supported by the implementation, although in practice it is usually clearer to choose the one that matches the deployment pattern.
+
+`http` and `https` proxies must define at least one of:
+
+- `custom_domains`
+- `subdomain`
+
+Blank strings are rejected for `custom_domains`, `subdomain`, and `server.subdomain_host`.
+
+### Proxy CLI shortcuts
+
+Import one proxy mapping from a YAML file:
+
+```bash
+frpdeck proxy import ./app-http.yaml --instance ./my-client
+```
+
+Update one existing proxy from a YAML patch file:
+
+```bash
+frpdeck proxy update ssh ./ssh-patch.yaml --instance ./my-client
+```
+
+Add an HTTP proxy with one or more custom domains:
+
+```bash
+frpdeck proxy add http \
+  --instance ./my-client \
+  --name app-http \
+  --local-port 8080 \
+  --custom-domain app.example.com \
+  --custom-domain www.example.com
+```
+
+Add an HTTPS proxy:
+
+```bash
+frpdeck proxy add https \
+  --instance ./my-client \
+  --name app-https \
+  --local-port 8443 \
+  --custom-domain secure.example.com
+```
+
+Add an HTTP proxy using a subdomain:
+
+```bash
+frpdeck proxy add http \
+  --instance ./my-client \
+  --name app-subdomain \
+  --local-port 8080 \
+  --subdomain app
+```
+
+`--custom-domain` is repeatable, and it can be combined with `--subdomain` when you want both selectors on the same proxy.
 
 ## MCP
 
-`frpdeck` ships with a local stdio MCP thin wrapper over structured proxy tools and read-only status resources. It is designed to bind to one instance directory at a time and is best used through a generated wrapper script.
+`frpdeck` ships with a local stdio MCP thin wrapper over structured proxy CRUD, import, and preview tools plus read-only status resources. It is designed to bind to one instance directory at a time and is best used through a generated wrapper script.
 
 Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point your MCP client at that script. Prefer the generated wrapper over writing your own unless you have a specific reason to customize startup behavior. The wrapper binds to your chosen instance directory and, by default, embeds the Python interpreter running `frpdeck` when the script is created. Use `--python /path/to/python` if you need to override that explicitly.
 
@@ -213,6 +355,7 @@ claude mcp add --scope user --transport stdio frpdeck -- \
 Current MCP scope is intentionally small:
 
 - Local stdio MCP server only.
+- Structured proxy CRUD/import/preview only; instance-level `validate`/`sync`/`apply` stay in the CLI.
 - No HTTP transport.
 - No remote auth layer.
 - No web UI.
@@ -253,4 +396,4 @@ Repository fixtures now live under `tests/fixtures/instances/`. They exist for t
 - By default, runtime files are installed under `runtime/` inside the instance directory, while the systemd unit is written to `/etc/systemd/system`.
 - FRP's own logs are controlled by `client.log` or `server.log` and are written into generated frpc/frps config.
 - `frpdeck`'s own logs are configured by top-level `frpdeck_logging` inside `node.yaml`.
-- Instance configuration files remain `node.yaml` and `proxies.yaml`. There is no separate runtime config file for frpdeck in the current design.
+- Source configuration remains YAML. `node.yaml` is always present, while `proxies.yaml` is used for client proxy definitions and may be absent on server instances. There is no separate runtime config file for frpdeck in the current design.

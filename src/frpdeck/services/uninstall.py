@@ -10,6 +10,7 @@ from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import ConfigValidationError, PermissionOperationError
 from frpdeck.domain.paths import resolve_path_from_instance
 from frpdeck.domain.state import NodeBase
+from frpdeck.services.privilege import can_delete_path, root_owned_hint
 from frpdeck.services.runtime import CommandResult, command_exists
 from frpdeck.services.systemd_manager import (
     daemon_reload,
@@ -53,6 +54,56 @@ class UninstallReport:
     kept_paths: list[Path] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     instance_deleted: bool = False
+
+
+def analyze_uninstall_root_requirements(instance_dir: Path, *, purge: bool = False, node: NodeBase | None = None) -> list[str]:
+    """Return the reasons why one uninstall invocation requires root."""
+    instance = instance_dir.resolve()
+    resolved_node = node or load_node_config(instance)
+    paths = resolved_node.resolved_paths(instance)
+    unit_path = paths.unit_path(resolved_node.service.service_name)
+    reasons: list[str] = []
+
+    cleanup_paths = _runtime_cleanup_paths(
+        instance,
+        paths.install_dir,
+        paths.config_root,
+        _frp_log_parent_dirs(instance, resolved_node),
+        _frpdeck_log_parent_dir(instance, resolved_node),
+    )
+    install_cleanup_target, _ = _resolve_install_cleanup_target(
+        instance,
+        paths.install_dir,
+        paths.binary_path(resolved_node.role),
+        resolved_node.instance_name,
+        resolved_node.service.service_name,
+        cleanup_paths,
+    )
+    targets = [
+        unit_path if unit_path.exists() else None,
+        *cleanup_paths,
+        instance / "rendered",
+        instance / "state",
+        instance / "backups",
+        install_cleanup_target,
+        instance if purge else None,
+    ]
+    _validate_delete_targets(targets, instance, purge)
+
+    if command_exists("systemctl"):
+        _append_reason(reasons, "will manage system service via systemctl")
+
+    if unit_path.exists() and not can_delete_path(unit_path):
+        _append_reason(reasons, f"will remove systemd unit under {paths.systemd_unit_dir}{root_owned_hint(unit_path)}")
+
+    for target in targets:
+        if target is None or not target.exists() or can_delete_path(target):
+            continue
+        if target.resolve() == unit_path.resolve():
+            continue
+        _append_reason(reasons, _delete_reason_for_target(instance, paths, target, purge=purge))
+
+    return reasons
 
 
 def uninstall_instance(instance_dir: Path, purge: bool = False) -> UninstallReport:
@@ -288,3 +339,26 @@ def _validate_delete_targets(targets: list[Path | None], instance: Path, purge: 
         if target is None or not target.exists():
             continue
         _assert_safe_delete_path(target, allow_instance_root=purge and target == instance)
+
+
+def _delete_reason_for_target(instance: Path, paths, target: Path, *, purge: bool) -> str:
+    resolved = target.resolve()
+    suffix = root_owned_hint(resolved)
+    if purge and resolved == instance:
+        return f"instance directory is not removable by current user: {resolved}{suffix}"
+    if _is_relative_to(resolved, paths.install_dir) or resolved == paths.install_dir:
+        return f"install path is not removable by current user: {resolved}{suffix}"
+    if _is_relative_to(resolved, paths.config_root) or resolved == paths.config_root:
+        return f"runtime config path is not removable by current user: {resolved}{suffix}"
+    if resolved == instance / "rendered":
+        return f"rendered output path is not removable by current user: {resolved}{suffix}"
+    if resolved == instance / "state":
+        return f"state path is not removable by current user: {resolved}{suffix}"
+    if resolved == instance / "backups":
+        return f"backup path is not removable by current user: {resolved}{suffix}"
+    return f"path is not removable by current user: {resolved}{suffix}"
+
+
+def _append_reason(reasons: list[str], reason: str) -> None:
+    if reason not in reasons:
+        reasons.append(reason)

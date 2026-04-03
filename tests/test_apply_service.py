@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig
-from frpdeck.services.apply_service import ApplyExecutionResult, ApplyService
+from frpdeck.services.apply_service import ApplyExecutionResult, ApplyService, analyze_apply_root_requirements
 from frpdeck.services.renderer import RenderSummary
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node
@@ -137,3 +137,36 @@ def test_apply_service_stops_after_validation_failure(monkeypatch, tmp_path: Pat
     assert result.service_name == "client-demo-frpc"
     assert result.validation_errors == ["client.server_addr still uses a placeholder value"]
     assert not (tmp_path / "state" / "last_apply.json").exists()
+
+
+def test_analyze_apply_root_requirements_reports_systemctl_and_unit_reasons(tmp_path: Path) -> None:
+    node = build_client_node()
+
+    reasons = analyze_apply_root_requirements(tmp_path, node)
+
+    assert "will manage system service via systemctl" in reasons
+    assert any("/etc/systemd/system" in reason for reason in reasons)
+
+
+def test_analyze_apply_root_requirements_does_not_misreport_writable_custom_unit_dir(tmp_path: Path) -> None:
+    node = build_client_node(
+        overrides={
+            "paths": {
+                "systemd_unit_dir": str(tmp_path / "units"),
+                "config_root": str(tmp_path / "runtime" / "config"),
+                "install_dir": str(tmp_path / "runtime" / "bin"),
+            }
+        }
+    )
+    (tmp_path / "runtime" / "config").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "runtime" / "bin").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "rendered").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "units").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "backups").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "runtime" / "logs").mkdir(parents=True, exist_ok=True)
+
+    reasons = analyze_apply_root_requirements(tmp_path, node, install_if_missing=False)
+
+    assert "will manage system service via systemctl" in reasons
+    assert not any("will write systemd unit under" in reason for reason in reasons)

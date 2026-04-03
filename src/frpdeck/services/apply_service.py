@@ -8,9 +8,11 @@ from typing import Protocol
 
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import FrpdeckError
+from frpdeck.domain.paths import resolve_path_from_instance
 from frpdeck.domain.state import ApplyState, NodeBase
 from frpdeck.domain.proxy import ProxyFile
 from frpdeck.services.installer import ensure_binary_installed, read_current_version, sync_rendered_to_runtime
+from frpdeck.services.privilege import can_replace_directory, can_write_directory, can_write_file, root_owned_hint
 from frpdeck.services.renderer import render_instance
 from frpdeck.services.systemd_manager import daemon_reload, enable_service, install_unit, restart_service
 from frpdeck.services.verifier import validate_instance
@@ -207,3 +209,81 @@ class ApplyService:
         daemon_reload()
         enable_service(service_name)
         restart_service(service_name)
+
+
+def analyze_apply_root_requirements(
+    instance_dir: Path,
+    node: NodeBase,
+    *,
+    archive: Path | None = None,
+    install_if_missing: bool = True,
+) -> list[str]:
+    """Return the reasons why one apply invocation requires root."""
+    instance = instance_dir.resolve()
+    paths = node.resolved_paths(instance)
+    reasons: list[str] = []
+
+    _append_reason(reasons, "will manage system service via systemctl")
+
+    unit_path = paths.unit_path(node.service.service_name)
+    if not can_write_file(unit_path):
+        _append_reason(reasons, f"will write systemd unit under {paths.systemd_unit_dir}{root_owned_hint(unit_path)}")
+
+    runtime_config_path = paths.config_path(node.role)
+    if not can_write_file(runtime_config_path):
+        _append_reason(reasons, f"runtime config path is not writable by current user: {runtime_config_path}{root_owned_hint(runtime_config_path)}")
+
+    if node.role == Role.CLIENT:
+        runtime_proxies_dir = paths.proxies_dir()
+        if not can_replace_directory(runtime_proxies_dir):
+            _append_reason(
+                reasons,
+                f"runtime proxy include path is not writable by current user: {runtime_proxies_dir}{root_owned_hint(runtime_proxies_dir)}",
+            )
+
+    for log_dir in _frp_log_parent_dirs(instance, node):
+        if not can_write_directory(log_dir):
+            _append_reason(reasons, f"FRP log directory is not writable by current user: {log_dir}{root_owned_hint(log_dir)}")
+
+    rendered_root = instance / "rendered"
+    if not can_write_directory(rendered_root):
+        _append_reason(reasons, f"rendered output path is not writable by current user: {rendered_root}{root_owned_hint(rendered_root)}")
+
+    state_root = instance / "state"
+    if not can_write_directory(state_root):
+        _append_reason(reasons, f"state path is not writable by current user: {state_root}{root_owned_hint(state_root)}")
+
+    needs_binary_install = install_if_missing and _apply_will_install_binary(instance, node, archive=archive)
+    if needs_binary_install and not can_write_directory(paths.install_dir):
+        _append_reason(reasons, f"install path is not writable by current user: {paths.install_dir}{root_owned_hint(paths.install_dir)}")
+
+    backup_root = instance / "backups"
+    if _apply_will_write_backups(paths, node) and not can_write_directory(backup_root):
+        _append_reason(reasons, f"backup path is not writable by current user: {backup_root}{root_owned_hint(backup_root)}")
+
+    return reasons
+
+
+def _apply_will_install_binary(instance_dir: Path, node: NodeBase, *, archive: Path | None) -> bool:
+    if archive is not None:
+        return True
+    paths = node.resolved_paths(instance_dir)
+    binary_path = paths.binary_path(node.role)
+    current_version = read_current_version(instance_dir)
+    return not binary_path.exists() or current_version is None
+
+
+def _apply_will_write_backups(paths, node: NodeBase) -> bool:
+    return paths.binary_path(node.role).exists() or paths.config_path(node.role).exists()
+
+
+def _frp_log_parent_dirs(instance_dir: Path, node: NodeBase) -> list[Path]:
+    log_target = node.client.log.to if node.role == Role.CLIENT else node.server.log.to
+    if log_target is None:
+        return []
+    return [resolve_path_from_instance(log_target, instance_dir).parent]
+
+
+def _append_reason(reasons: list[str], reason: str) -> None:
+    if reason not in reasons:
+        reasons.append(reason)

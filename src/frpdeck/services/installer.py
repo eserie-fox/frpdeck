@@ -18,6 +18,7 @@ from frpdeck.domain.versioning import normalize_version
 from frpdeck.storage.dump import dump_json_data
 from frpdeck.services.backup import backup_file_if_exists
 from frpdeck.services.downloader import DownloadProgressCallback, download_file
+from frpdeck.services.privilege import can_read_path, can_replace_directory, can_write_directory, can_write_file, root_owned_hint
 from frpdeck.services.release_checker import ReleaseInfo, get_release
 
 
@@ -127,6 +128,7 @@ def sync_rendered_to_runtime(instance_dir: Path, node: NodeBase) -> Path:
     rendered_dir = instance_dir / "rendered"
     rendered_main = rendered_dir / ("frpc.toml" if node.role == Role.CLIENT else "frps.toml")
     rendered_proxies = rendered_dir / "proxies.d"
+    _validate_rendered_snapshot(node, rendered_main=rendered_main, rendered_proxies=rendered_proxies)
 
     try:
         paths.config_root.mkdir(parents=True, exist_ok=True)
@@ -138,15 +140,65 @@ def sync_rendered_to_runtime(instance_dir: Path, node: NodeBase) -> Path:
         ) from exc
 
     target_main = paths.config_path(node.role)
-    backup_file_if_exists(target_main, instance_dir / "backups")
-    shutil.copy2(rendered_main, target_main)
+    try:
+        backup_file_if_exists(target_main, instance_dir / "backups")
+        shutil.copy2(rendered_main, target_main)
+    except PermissionError as exc:
+        raise PermissionOperationError(
+            f"cannot update runtime main config {target_main}; use sudo or adjust configured paths"
+        ) from exc
 
     target_proxies = paths.proxies_dir()
-    if rendered_proxies.exists():
-        if target_proxies.exists():
-            shutil.rmtree(target_proxies)
-        shutil.copytree(rendered_proxies, target_proxies)
+    if node.role == Role.CLIENT:
+        try:
+            if target_proxies.exists():
+                shutil.rmtree(target_proxies)
+            shutil.copytree(rendered_proxies, target_proxies)
+        except PermissionError as exc:
+            raise PermissionOperationError(
+                f"cannot replace runtime proxy include directory {target_proxies}; use sudo or adjust configured paths"
+            ) from exc
     return target_main
+
+
+def analyze_sync_root_requirements(instance_dir: Path, node: NodeBase) -> list[str]:
+    """Return the reasons why one sync invocation requires root."""
+
+    instance = instance_dir.resolve()
+    paths = node.resolved_paths(instance)
+    reasons: list[str] = []
+
+    runtime_config_path = paths.config_path(node.role)
+    if not can_write_file(runtime_config_path):
+        reasons.append(f"runtime config path is not writable by current user: {runtime_config_path}{root_owned_hint(runtime_config_path)}")
+
+    if node.role == Role.CLIENT:
+        runtime_proxies_dir = paths.proxies_dir()
+        if not can_replace_directory(runtime_proxies_dir):
+            reasons.append(
+                f"runtime proxy include path is not writable by current user: {runtime_proxies_dir}{root_owned_hint(runtime_proxies_dir)}"
+            )
+
+    backup_root = instance / "backups"
+    if runtime_config_path.exists() and not can_write_directory(backup_root):
+        reasons.append(f"backup path is not writable by current user: {backup_root}{root_owned_hint(backup_root)}")
+
+    for log_dir in _runtime_log_dirs(instance, node):
+        if not can_write_directory(log_dir):
+            reasons.append(f"FRP log directory is not writable by current user: {log_dir}{root_owned_hint(log_dir)}")
+
+    rendered_main = instance / "rendered" / ("frpc.toml" if node.role == Role.CLIENT else "frps.toml")
+    if rendered_main.exists() and not can_read_path(rendered_main):
+        reasons.append(f"rendered main config is not readable by current user: {rendered_main}{root_owned_hint(rendered_main)}")
+
+    if node.role == Role.CLIENT:
+        rendered_proxies = instance / "rendered" / "proxies.d"
+        if rendered_proxies.exists() and not can_read_path(rendered_proxies):
+            reasons.append(
+                f"rendered proxy include directory is not readable by current user: {rendered_proxies}{root_owned_hint(rendered_proxies)}"
+            )
+
+    return reasons
 
 
 def write_current_version(instance_dir: Path, version: str) -> None:
@@ -181,3 +233,17 @@ def _runtime_log_dirs(instance_dir: Path, node: NodeBase) -> list[Path]:
     if log_target is None:
         return []
     return [resolve_path_from_instance(log_target, instance_dir).parent]
+
+
+def _validate_rendered_snapshot(
+    node: NodeBase,
+    *,
+    rendered_main: Path,
+    rendered_proxies: Path,
+) -> None:
+    if not rendered_main.exists() or not rendered_main.is_file():
+        raise ConfigValidationError(f"rendered main config not found: {rendered_main}; run render first")
+    if node.role == Role.CLIENT and (not rendered_proxies.exists() or not rendered_proxies.is_dir()):
+        raise ConfigValidationError(
+            f"rendered proxy include directory not found: {rendered_proxies}; run render first"
+        )

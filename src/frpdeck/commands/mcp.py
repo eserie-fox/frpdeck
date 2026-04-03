@@ -17,7 +17,7 @@ from frpdeck.storage.load import load_node_config
 WRAPPER_FILENAME = "start-mcp-stdio.sh"
 DEFAULT_SSH_HOST = "grape_networking"
 
-mcp_app = typer.Typer(help="MCP stdio helper commands")
+mcp_app = typer.Typer(help="MCP stdio helper commands", no_args_is_help=True)
 
 
 def register(app: typer.Typer) -> None:

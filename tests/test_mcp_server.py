@@ -8,13 +8,11 @@ import pytest
 
 from frpdeck.domain.errors import ConfigLoadError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
-from frpdeck.domain.proxy_management import ApplyReport
 from frpdeck.mcp.resources import instance_status_resource, proxy_runtime_status_resource
 from frpdeck.mcp.server import create_mcp_server, main
-from frpdeck.mcp.tools import apply_proxy_changes_tool, get_proxy_tool, list_proxies_tool, preview_proxy_changes_tool
-from frpdeck.services.renderer import RenderSummary
+from frpdeck.mcp.tools import add_proxy_tool, get_proxy_tool, import_proxy_file_tool, list_proxies_tool, preview_proxy_changes_tool
 from frpdeck.storage.dump import dump_json_data, dump_yaml_model
-from tests.support import build_client_node, build_server_node
+from tests.support import build_client_node
 
 
 def _write_client_instance(instance_dir: Path, *, node_overrides: dict[str, object] | None = None) -> None:
@@ -44,26 +42,9 @@ def _write_client_instance(instance_dir: Path, *, node_overrides: dict[str, obje
         },
         instance_dir / "state" / "last_apply.json",
     )
-
-
-def _write_server_instance(instance_dir: Path) -> None:
-    dump_yaml_model(
-        build_server_node(),
-        instance_dir / "node.yaml",
-    )
-    dump_yaml_model(ProxyFile(proxies=[]), instance_dir / "proxies.yaml")
-
-
 def _list_tools(server: FastMCP) -> dict[str, object]:
     async def run() -> dict[str, object]:
         return {tool.name: tool for tool in await server.list_tools()}
-
-    return anyio.run(run)
-
-
-def _list_resource_templates(server: FastMCP) -> list[object]:
-    async def run() -> list[object]:
-        return await server.list_resource_templates()
 
     return anyio.run(run)
 
@@ -120,48 +101,58 @@ def test_mcp_preview_tool_returns_jsonable_data(tmp_path: Path) -> None:
     json.dumps(result.model_dump(mode="json"))
 
 
-def test_mcp_apply_tool_rejects_server_role(tmp_path: Path) -> None:
-    _write_server_instance(tmp_path)
-
-    result = apply_proxy_changes_tool(str(tmp_path))
-
-    assert result.ok is False
-    assert result.error_code == "unsupported_role"
-
-
-def test_mcp_apply_tool_succeeds_with_mocked_render_and_reload(monkeypatch, tmp_path: Path) -> None:
+def test_mcp_add_proxy_tool_supports_all_protocols(tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
 
-    def fake_render(instance_dir: Path, node: object, proxy_file: object, output_root: Path | None = None) -> RenderSummary:
-        root = output_root or (instance_dir / "rendered")
-        rendered_path = root / "proxies.d" / "ssh.toml"
-        rendered_path.parent.mkdir(parents=True, exist_ok=True)
-        rendered_path.write_text("proxy", encoding="utf-8")
-        main_path = root / "frpc.toml"
-        main_path.write_text("main", encoding="utf-8")
-        systemd_path = root / "systemd" / "client-demo-frpc.service"
-        systemd_path.parent.mkdir(parents=True, exist_ok=True)
-        systemd_path.write_text("unit", encoding="utf-8")
-        return RenderSummary(main_config_path=main_path, rendered_proxy_paths=[rendered_path], systemd_unit_path=systemd_path)
+    tcp_result = add_proxy_tool(str(tmp_path), protocol="tcp", name="ssh-alt", local_port=2222, remote_port=7000)
+    udp_result = add_proxy_tool(str(tmp_path), protocol="udp", name="dns-alt", local_port=5353, remote_port=7001)
+    http_result = add_proxy_tool(
+        str(tmp_path),
+        protocol="http",
+        name="web",
+        local_port=8080,
+        custom_domains=["app.example.com"],
+    )
+    https_result = add_proxy_tool(
+        str(tmp_path),
+        protocol="https",
+        name="secure-web",
+        local_port=8443,
+        subdomain="secure",
+    )
 
-    def fake_sync(instance_dir: Path, node: object) -> Path:
-        runtime_path = instance_dir / "runtime" / "config" / "frpc.toml"
-        runtime_path.parent.mkdir(parents=True, exist_ok=True)
-        runtime_path.write_text("runtime", encoding="utf-8")
-        return runtime_path
+    assert tcp_result.ok is True
+    assert tcp_result.data["proxy"]["type"] == "tcp"
+    assert udp_result.ok is True
+    assert udp_result.data["proxy"]["type"] == "udp"
+    assert http_result.ok is True
+    assert http_result.data["proxy"]["custom_domains"] == ["app.example.com"]
+    assert https_result.ok is True
+    assert https_result.data["proxy"]["subdomain"] == "secure"
 
-    def fake_reload(self: object, instance_dir: Path, node: object) -> str:
-        return "reload completed"
 
-    monkeypatch.setattr("frpdeck.services.proxy_manager.render_instance", fake_render)
-    monkeypatch.setattr("frpdeck.services.proxy_manager.sync_rendered_to_runtime", fake_sync)
-    monkeypatch.setattr("frpdeck.services.proxy_manager.ProxyManager._reload_client", fake_reload)
+def test_mcp_import_proxy_file_tool_imports_mapping(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    import_file = tmp_path / "web.yaml"
+    import_file.write_text(
+        "\n".join(
+            [
+                "name: imported-web",
+                "type: http",
+                "local_port: 8080",
+                "custom_domains:",
+                "  - imported.example.com",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
-    result = apply_proxy_changes_tool(str(tmp_path))
+    result = import_proxy_file_tool(str(tmp_path), str(import_file))
 
     assert result.ok is True
-    assert result.data["reloaded"] is True
-    assert result.data["rendered_files"] == ["ssh.toml"]
+    assert result.operation == "import_proxy_file"
+    assert result.data["proxy"]["name"] == "imported-web"
 
 
 def test_instance_status_resource_returns_json(tmp_path: Path) -> None:
@@ -205,14 +196,19 @@ def test_generic_mode_tool_schema_keeps_instance_dir() -> None:
     tools = _list_tools(create_mcp_server())
 
     assert "instance_dir" in tools["list_proxies"].inputSchema["properties"]
-    assert "instance_dir" in tools["apply_proxy_changes"].inputSchema["properties"]
+    assert "instance_dir" in tools["add_proxy"].inputSchema["properties"]
+    assert "instance_dir" in tools["import_proxy_file"].inputSchema["properties"]
+    assert tools["add_proxy"].inputSchema["properties"]["protocol"]["enum"] == ["tcp", "udp", "http", "https"]
+    assert "apply_proxy_changes" not in tools
+    assert "validate_proxy_set" not in tools
 
 
 def test_bound_mode_tool_schema_omits_instance_dir() -> None:
     tools = _list_tools(create_mcp_server(Path(".")))
 
     assert "instance_dir" not in tools["list_proxies"].inputSchema.get("properties", {})
-    assert "instance_dir" not in tools["apply_proxy_changes"].inputSchema.get("properties", {})
+    assert "instance_dir" not in tools["add_proxy"].inputSchema.get("properties", {})
+    assert "instance_dir" not in tools["import_proxy_file"].inputSchema.get("properties", {})
 
 
 def test_bound_and_generic_modes_expose_same_tool_names_with_expected_instance_dir_difference() -> None:
@@ -343,7 +339,7 @@ def test_mcp_write_audit_marks_actor_as_mcp(tmp_path: Path) -> None:
     payload = _call_tool(
         create_mcp_server(tmp_path),
         "add_proxy",
-        {"proxy_spec": {"type": "tcp", "name": "new-ssh", "local_ip": "127.0.0.1", "local_port": 2200, "remote_port": 6200}},
+        {"protocol": "tcp", "name": "new-ssh", "local_ip": "127.0.0.1", "local_port": 2200, "remote_port": 6200},
     )
 
     assert payload["ok"] is True

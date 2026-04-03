@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+## 1.1.2
+
+- Changed server operational defaults and scaffold output so vhost HTTP/HTTPS ports and `subdomain_host` are unset by default; new server instances no longer implicitly bind `80` or `443`.
+- Reworked proxy CLI structure around `proxy import <file>`, `proxy update <name> <file>`, and `proxy add tcp|udp|http|https`, and removed the duplicate `proxy validate` / `proxy apply` command layer.
+- Added a dedicated top-level `sync` command so `rendered/` to `runtime/config` mirroring is explicit and can safely delete stale managed proxy include files without bundling render, validate, reload, or restart.
+- Updated MCP proxy tools to match the new CLI mental model with unified `add_proxy`, file import, CRUD, and preview support; removed MCP proxy-apply/proxy-validate endpoints.
+- Tightened HTTP/HTTPS proxy validation across models, proxy writes, docs, and tests so `custom_domains` or `subdomain` is required and blank values are rejected before render.
+- Relaxed fragile help-text tests so they keep asserting command content without hard-binding Typer/Click-specific help exit codes.
+
 ## 1.1.1
 
 - Fixed the generated MCP stdio wrapper so its default embedded Python interpreter is stable and no longer changes implicitly with `VIRTUAL_ENV`; `--python` remains the explicit override.

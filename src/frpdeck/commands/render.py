@@ -17,7 +17,7 @@ def register(app: typer.Typer) -> None:
     def render_command(
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     ) -> None:
-        """Render FRP and systemd files into rendered/."""
+        """Render FRP and systemd files into rendered/ only."""
         instance_dir = instance.resolve()
         node = load_node_config(instance_dir)
         with instance_logging_context(instance_dir, node=node):

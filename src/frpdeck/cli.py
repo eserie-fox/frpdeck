@@ -6,7 +6,7 @@ import logging
 
 import typer
 
-from frpdeck.commands import apply, audit, check_update, doctor, init, mcp, proxy, reload, render, restart, status, uninstall, upgrade, validate
+from frpdeck.commands import apply, audit, check_update, doctor, init, mcp, proxy, reload, render, restart, status, sync, uninstall, upgrade, validate
 from frpdeck.logging import configure_default_logging
 from frpdeck.version import __version__
 
@@ -36,7 +36,7 @@ def callback(
     logging.getLogger("frpdeck.cli").debug("starting CLI command: %s", ctx.invoked_subcommand)
 
 
-for module in [init, render, validate, apply, reload, restart, status, uninstall, check_update, upgrade, doctor, proxy, mcp, audit]:
+for module in [init, render, validate, sync, apply, reload, restart, status, uninstall, check_update, upgrade, doctor, proxy, mcp, audit]:
     module.register(app)
 
 

@@ -5,9 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from frpdeck.domain.enums import ProxyType, Role
-from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyFile, TcpProxyConfig, UdpProxyConfig
-from frpdeck.domain.state import ClientNodeConfig, NodeBase, ServerNodeConfig
 from frpdeck.domain.paths import resolve_path_from_instance
+from frpdeck.domain.proxy import (
+    HttpProxyConfig,
+    HttpsProxyConfig,
+    ProxyFile,
+    TcpProxyConfig,
+    UdpProxyConfig,
+    validate_http_proxy_routes,
+)
+from frpdeck.domain.state import ClientNodeConfig, NodeBase, ServerNodeConfig
 
 
 PLACEHOLDER_PREFIX = "PLEASE_FILL_"
@@ -77,8 +84,11 @@ def _validate_proxy_file(proxy_file: ProxyFile, errors: list[str]) -> None:
             if proxy.remote_port in ports:
                 errors.append(f"duplicate {proxy.type.value} remote_port: {proxy.remote_port}")
             ports.add(proxy.remote_port)
-        if isinstance(proxy, (HttpProxyConfig, HttpsProxyConfig)) and not proxy.custom_domains and not proxy.subdomain:
-            errors.append(f"proxy {proxy.name} requires custom_domains or subdomain")
+        if isinstance(proxy, (HttpProxyConfig, HttpsProxyConfig)):
+            try:
+                validate_http_proxy_routes(proxy.custom_domains, proxy.subdomain, scope=f"proxy {proxy.name}")
+            except ValueError as exc:
+                errors.append(str(exc))
 
 
 def _is_placeholder(value: str) -> bool:

@@ -4,7 +4,7 @@
 
 `frpdeck` now uses a single instance-centric configuration model.
 
-- Instance config files remain YAML: `node.yaml` and `proxies.yaml`
+- Instance source config remains YAML: `node.yaml` is required for every instance, and `proxies.yaml` is used for client proxy definitions
 - There is no separate frpdeck runtime config file
 - Current config changes are not forward-compatible by policy in this phase
 
@@ -19,6 +19,8 @@ Top-level `node.yaml` fields:
 - `service`
 - `frpdeck_logging`
 - `client` or `server`
+
+For server instances, `server.vhost_http_port`, `server.vhost_https_port`, and `server.subdomain_host` are optional and default to unset.
 
 `paths` contains only:
 
@@ -106,6 +108,12 @@ Used for normal load/merge/validate:
 
 These provide real operational defaults and should not contain scaffold-only placeholders or sample proxy content.
 
+For server instances, the operational defaults leave vhost handling disabled:
+
+- `server.vhost_http_port: null`
+- `server.vhost_https_port: null`
+- `server.subdomain_host` omitted unless the user sets it explicitly
+
 ### Scaffold overrides
 
 Used only by `frpdeck init`:
@@ -126,13 +134,34 @@ Scaffold config is assembled as:
 The override files should contain only values that differ from operational defaults. Typical scaffold-only content includes:
 
 - placeholder addresses and domains
-- sample proxies
+- sample client proxies
+
+Current scaffold behavior:
+
+- `frpdeck init server ...` creates `node.yaml` and does not create `proxies.yaml`
+- `frpdeck init client ...` creates both `node.yaml` and `proxies.yaml`
+- client scaffold includes one sample `http` proxy using `custom_domains`
 
 `config_defaults/scaffold_instance_layout.json` defines the instance directory skeleton created by `frpdeck init`.
 
 `config_defaults/scaffold_token_example.json` remains a separate non-merge resource because it is example text payload, not part of the node/proxy config tree.
 
 `services/scaffold.py` should read these resources and inject only minimal context such as `instance_name`, `role`, derived `service_name`, and client `user`.
+
+## Command Semantics
+
+Operational commands intentionally split source validation, rendered output, runtime sync, and reload/apply behavior:
+
+- `validate` checks source config only and does not write `rendered/` or `runtime/config`
+- `render` writes the formal generated snapshot into `rendered/` only
+- `sync` mirrors the managed snapshot from `rendered/` into `runtime/config` only
+- `reload` acts on the current `runtime/config` for client instances
+- `apply` runs the full workflow: validate, render, sync, install/upgrade as needed, install the unit, restart service
+
+`proxy preview` stays separate from top-level `render`:
+
+- `proxy preview` is a temporary client-side proxy include preview and does not mutate `rendered/`
+- `render` is the persistent instance render and updates the full `rendered/` tree
 
 ## Load Path
 
@@ -144,7 +173,64 @@ Operational instance loading uses merge-before-validate:
 4. Deep-merge defaults with YAML override
 5. Validate with Pydantic models
 
-`proxies.yaml` follows the same pattern with `proxy_file.json`.
+When present, `proxies.yaml` follows the same pattern with `proxy_file.json`.
+
+## Server Vhost Behavior
+
+Server vhost fields are presence-based, not toggle-based.
+
+- If `server.vhost_http_port` is unset, `frpdeck` does not render `vhostHTTPPort`
+- If `server.vhost_https_port` is unset, `frpdeck` does not render `vhostHTTPSPort`
+- If `server.subdomain_host` is unset, `frpdeck` does not render `subDomainHost`
+- If any of those fields are explicitly set, the rendered `frps.toml` includes them
+
+This keeps the default server scaffold in a plain FRP server mode that does not implicitly claim `80` or `443`.
+
+## HTTP/HTTPS Proxy Route Rules
+
+`http` and `https` proxy entries in `proxies.yaml` support:
+
+- `custom_domains`
+- `subdomain`
+
+Rules:
+
+- At least one of `custom_domains` or `subdomain` must be set
+- `custom_domains` and `subdomain` may both be set on the same proxy
+- Blank or whitespace-only values are rejected for `custom_domains` entries and `subdomain`
+
+Example with `custom_domains`:
+
+```yaml
+proxies:
+  - name: app_http
+    type: http
+    local_port: 8080
+    custom_domains:
+      - app.example.com
+```
+
+Example with `subdomain`:
+
+```yaml
+proxies:
+  - name: app_subdomain
+    type: http
+    local_port: 8080
+    subdomain: app
+```
+
+Example with both:
+
+```yaml
+proxies:
+  - name: app_both
+    type: https
+    local_port: 8443
+    custom_domains:
+      - secure.example.com
+    subdomain: app
+```
 
 ## FRP Log Level Values
 

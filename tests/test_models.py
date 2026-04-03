@@ -38,6 +38,9 @@ def test_client_and_server_models_load() -> None:
 
     assert client.role == Role.CLIENT
     assert server.role == Role.SERVER
+    assert server.server.vhost_http_port is None
+    assert server.server.vhost_https_port is None
+    assert server.server.subdomain_host is None
     assert client.frpdeck_logging.stream == "stderr"
     assert client.frpdeck_logging.level == FrpdeckLogLevel.INFO
 
@@ -79,6 +82,25 @@ def test_proxy_discriminated_union() -> None:
 
     assert isinstance(tcp, TcpProxyConfig)
     assert isinstance(http, HttpProxyConfig)
+
+
+def test_http_and_https_proxy_route_validation_normalizes_values() -> None:
+    http = PROXY_ADAPTER.validate_python(
+        {
+            "name": "web",
+            "type": "http",
+            "local_port": 8080,
+            "custom_domains": [" example.com "],
+            "subdomain": " app ",
+        }
+    )
+
+    assert isinstance(http, HttpProxyConfig)
+    assert http.custom_domains == ["example.com"]
+    assert http.subdomain == "app"
+
+    with pytest.raises(ValidationError, match="requires custom_domains or subdomain"):
+        PROXY_ADAPTER.validate_python({"name": "secure", "type": "https", "local_port": 8443})
 
 
 def test_auth_token_and_token_file_rules() -> None:
