@@ -158,6 +158,27 @@ Operational commands intentionally split source validation, rendered output, run
 - `reload` acts on the current `runtime/config` for client instances
 - `apply` runs the full workflow: validate, render, sync, install/upgrade as needed, install the unit, restart service
 
+Mutating commands support `--sudo` and treat it as a full-command re-exec flag, not a late retry hint. For non-root users, `frpdeck ... --sudo` re-execs the entire write command through sudo before config loading or filesystem mutation. Without `--sudo`, mutating commands fail early when required config inputs are not readable or managed targets are not writable by the current user.
+
+The write-command set includes:
+
+- `init`
+- `render`
+- `sync`
+- `reload`
+- `apply`
+- `restart`
+- `upgrade`
+- `uninstall`
+- `proxy import`
+- `proxy add`
+- `proxy update`
+- `proxy enable`
+- `proxy disable`
+- `proxy remove`
+- `mcp install-stdio-wrapper`
+- `mcp uninstall-stdio-wrapper`
+
 `proxy preview` stays separate from top-level `render`:
 
 - `proxy preview` is a temporary client-side proxy include preview and does not mutate `rendered/`

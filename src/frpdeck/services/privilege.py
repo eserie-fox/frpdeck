@@ -29,6 +29,13 @@ def can_read_path(path: Path) -> bool:
     return os.access(path, os.R_OK)
 
 
+def can_execute_file(path: Path) -> bool:
+    """Return whether the current user can execute one existing file path."""
+    if not path.exists() or path.is_dir():
+        return False
+    return os.access(path, os.R_OK | os.X_OK)
+
+
 def can_replace_directory(path: Path) -> bool:
     """Return whether the current user can remove and recreate one directory path."""
     if path.exists():

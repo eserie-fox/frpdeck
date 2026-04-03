@@ -9,10 +9,12 @@ from pathlib import Path
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 from frpdeck.domain.client_config import AuthConfig, FrpLogConfig
+from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.domain.enums import Role
 from frpdeck.domain.paths import resolve_path_from_instance
 from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyConfig, ProxyFile, TcpProxyConfig, UdpProxyConfig
 from frpdeck.domain.state import ClientNodeConfig, NodeBase, ServerNodeConfig
+from frpdeck.services.privilege import can_write_directory, can_write_file, root_owned_hint
 
 
 def _build_environment() -> Environment:
@@ -45,32 +47,75 @@ def render_instance(
     rendered_root = output_root or (instance_dir / "rendered")
     proxies_root = rendered_root / "proxies.d"
     systemd_root = rendered_root / "systemd"
-    rendered_root.mkdir(parents=True, exist_ok=True)
-    proxies_root.mkdir(parents=True, exist_ok=True)
-    systemd_root.mkdir(parents=True, exist_ok=True)
+    try:
+        rendered_root.mkdir(parents=True, exist_ok=True)
+        proxies_root.mkdir(parents=True, exist_ok=True)
+        systemd_root.mkdir(parents=True, exist_ok=True)
 
-    for existing in proxies_root.glob("*.toml"):
-        existing.unlink()
+        for existing in proxies_root.glob("*.toml"):
+            existing.unlink()
 
-    if node.role == Role.CLIENT:
-        assert isinstance(node, ClientNodeConfig)
-        proxy_file = proxy_file or ProxyFile()
-        proxy_paths = _render_client_proxies(instance_dir, proxy_file, proxies_root)
-        main_path = rendered_root / "frpc.toml"
-        main_content = _render_client_base(instance_dir, node)
-        unit_name = "frpc.service.j2"
-    else:
-        assert isinstance(node, ServerNodeConfig)
-        proxy_paths = []
-        main_path = rendered_root / "frps.toml"
-        main_content = _render_server_base(instance_dir, node)
-        unit_name = "frps.service.j2"
+        if node.role == Role.CLIENT:
+            assert isinstance(node, ClientNodeConfig)
+            proxy_file = proxy_file or ProxyFile()
+            proxy_paths = _render_client_proxies(instance_dir, proxy_file, proxies_root)
+            main_path = rendered_root / "frpc.toml"
+            main_content = _render_client_base(instance_dir, node)
+            unit_name = "frpc.service.j2"
+        else:
+            assert isinstance(node, ServerNodeConfig)
+            proxy_paths = []
+            main_path = rendered_root / "frps.toml"
+            main_content = _render_server_base(instance_dir, node)
+            unit_name = "frps.service.j2"
 
-    main_path.write_text(main_content, encoding="utf-8")
-    unit_path = systemd_root / f"{node.service.service_name}.service"
-    unit_path.write_text(_render_systemd(instance_dir, node, unit_name), encoding="utf-8")
+        main_path.write_text(main_content, encoding="utf-8")
+        unit_path = systemd_root / f"{node.service.service_name}.service"
+        unit_path.write_text(_render_systemd(instance_dir, node, unit_name), encoding="utf-8")
+    except PermissionError as exc:
+        raise PermissionOperationError(
+            f"cannot update rendered output under {rendered_root}; use sudo or adjust instance directory permissions"
+        ) from exc
 
     return RenderSummary(main_config_path=main_path, rendered_proxy_paths=proxy_paths, systemd_unit_path=unit_path)
+
+
+def analyze_render_root_requirements(instance_dir: Path, node: NodeBase) -> list[str]:
+    """Return the reasons why one render invocation requires elevated privileges."""
+    instance = instance_dir.resolve()
+    rendered_root = instance / "rendered"
+    proxies_root = rendered_root / "proxies.d"
+    systemd_root = rendered_root / "systemd"
+    main_path = rendered_root / ("frpc.toml" if node.role == Role.CLIENT else "frps.toml")
+    unit_path = systemd_root / f"{node.service.service_name}.service"
+    reasons: list[str] = []
+
+    _append_reason_if_needed(
+        reasons,
+        can_write_directory(rendered_root),
+        f"rendered output path is not writable by current user: {rendered_root}{root_owned_hint(rendered_root)}",
+    )
+    _append_reason_if_needed(
+        reasons,
+        can_write_directory(proxies_root),
+        f"rendered proxy output path is not writable by current user: {proxies_root}{root_owned_hint(proxies_root)}",
+    )
+    _append_reason_if_needed(
+        reasons,
+        can_write_directory(systemd_root),
+        f"rendered systemd output path is not writable by current user: {systemd_root}{root_owned_hint(systemd_root)}",
+    )
+    _append_reason_if_needed(
+        reasons,
+        can_write_file(main_path),
+        f"rendered main config path is not writable by current user: {main_path}{root_owned_hint(main_path)}",
+    )
+    _append_reason_if_needed(
+        reasons,
+        can_write_file(unit_path),
+        f"rendered systemd unit path is not writable by current user: {unit_path}{root_owned_hint(unit_path)}",
+    )
+    return reasons
 
 
 def _render_client_base(instance_dir: Path, node: ClientNodeConfig) -> str:
@@ -190,3 +235,8 @@ def _log_context(log: FrpLogConfig, instance_dir: Path) -> dict[str, str | int |
 
 def _slugify(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", name).strip("_") or "proxy"
+
+
+def _append_reason_if_needed(reasons: list[str], allowed: bool, reason: str) -> None:
+    if not allowed and reason not in reasons:
+        reasons.append(reason)

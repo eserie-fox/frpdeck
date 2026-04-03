@@ -1,16 +1,25 @@
-from frpdeck.commands._privilege import ensure_root_privileges
+from pathlib import Path
+
+import pytest
+import typer
+from typer.testing import CliRunner
+
+from frpdeck.commands._invocation import CommandInvocation, build_command_invocation
+from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges
 from frpdeck.domain.errors import PermissionOperationError
 
 
-def test_ensure_root_privileges_fails_fast_without_sudo(monkeypatch) -> None:
+RUNNER = CliRunner()
+
+
+def test_raise_for_missing_privileges_fails_fast_without_sudo(monkeypatch) -> None:
     monkeypatch.setattr("frpdeck.commands._privilege.current_user_is_root", lambda: False)
 
     try:
-        ensure_root_privileges(
+        raise_for_missing_privileges(
             operation="apply",
             reasons=["will manage system service via systemctl"],
-            sudo_requested=False,
-            command_args=["apply", "--instance", "/tmp/demo"],
+            invocation=CommandInvocation(["apply", "--instance", "/tmp/demo"]),
         )
     except PermissionOperationError as exc:
         message = str(exc)
@@ -22,40 +31,172 @@ def test_ensure_root_privileges_fails_fast_without_sudo(monkeypatch) -> None:
     assert "Retry with: frpdeck apply --instance /tmp/demo --sudo" in message
 
 
-def test_ensure_root_privileges_reexecs_with_sudo(monkeypatch) -> None:
+def test_maybe_reexec_with_sudo_reexecs_with_sudo(monkeypatch) -> None:
     captured: list[list[str]] = []
 
     monkeypatch.setattr("frpdeck.commands._privilege.current_user_is_root", lambda: False)
     monkeypatch.setattr("frpdeck.commands._privilege.command_exists", lambda command: True)
     monkeypatch.setattr("frpdeck.commands._privilege._exec_with_sudo", lambda args: captured.append(args))
-    monkeypatch.setattr("frpdeck.commands._privilege.Path.exists", lambda self: True)
-    monkeypatch.setattr("frpdeck.commands._privilege.os.access", lambda path, mode: True)
+    monkeypatch.setattr(
+        CommandInvocation,
+        "sudo_exec_args",
+        lambda self: ["sudo", "frpdeck", *self.argv, "--sudo"],
+    )
 
-    result = ensure_root_privileges(
+    result = maybe_reexec_with_sudo(
         operation="apply",
-        reasons=["will manage system service via systemctl"],
         sudo_requested=True,
-        command_args=["apply", "--instance", "/tmp/demo"],
+        invocation=CommandInvocation(["apply", "--instance", "/tmp/demo"]),
     )
 
     assert result is True
-    assert captured
-    assert captured[0][0] == "sudo"
-    assert "--sudo" in captured[0]
+    assert captured == [["sudo", "frpdeck", "apply", "--instance", "/tmp/demo", "--sudo"]]
 
 
-def test_ensure_root_privileges_does_not_reexec_when_already_root(monkeypatch) -> None:
+def test_maybe_reexec_with_sudo_reports_missing_sudo_for_immediate_reexec(monkeypatch) -> None:
+    monkeypatch.setattr("frpdeck.commands._privilege.current_user_is_root", lambda: False)
+    monkeypatch.setattr("frpdeck.commands._privilege.command_exists", lambda command: False)
+
+    with pytest.raises(PermissionOperationError) as exc_info:
+        maybe_reexec_with_sudo(
+            operation="init",
+            sudo_requested=True,
+            invocation=CommandInvocation(["init", "client", "demo", "--directory", "/tmp"]),
+            subject="the target directory",
+        )
+
+    message = str(exc_info.value)
+    assert "init requires elevated privileges for the target directory." in message
+    assert "`--sudo` was requested, but `sudo` is not available in PATH." in message
+    assert "Run this command as root instead: frpdeck init client demo --directory /tmp" in message
+
+
+def test_maybe_reexec_with_sudo_does_not_reexec_when_already_root(monkeypatch) -> None:
     monkeypatch.setattr("frpdeck.commands._privilege.current_user_is_root", lambda: True)
     monkeypatch.setattr(
         "frpdeck.commands._privilege._exec_with_sudo",
         lambda args: (_ for _ in ()).throw(AssertionError("should not re-exec")),
     )
 
-    result = ensure_root_privileges(
+    result = maybe_reexec_with_sudo(
         operation="apply",
-        reasons=["will manage system service via systemctl"],
         sudo_requested=True,
-        command_args=["apply", "--instance", "/tmp/demo"],
+        invocation=CommandInvocation(["apply", "--instance", "/tmp/demo"]),
     )
 
     assert result is False
+
+
+def test_build_command_invocation_serializes_arguments_and_path_override(tmp_path: Path) -> None:
+    app = typer.Typer()
+    captured: dict[str, list[str]] = {}
+
+    @app.callback()
+    def callback() -> None:
+        return
+
+    @app.command("init")
+    def init_command(
+        ctx: typer.Context,
+        role: str,
+        instance_name: str,
+        directory: Path = typer.Option(Path("."), "--directory"),
+        sudo: bool = typer.Option(False, "--sudo"),
+    ) -> None:
+        captured["argv"] = build_command_invocation(
+            ctx,
+            overrides={"directory": tmp_path.resolve()},
+        ).argv
+
+    result = RUNNER.invoke(app, ["init", "client", "demo", "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["argv"] == ["init", "client", "demo", "--directory", str(tmp_path.resolve())]
+
+
+def test_build_command_invocation_serializes_nested_command_and_repeated_options(tmp_path: Path) -> None:
+    app = typer.Typer()
+    proxy_app = typer.Typer()
+    add_app = typer.Typer()
+    proxy_app.add_typer(add_app, name="add")
+    app.add_typer(proxy_app, name="proxy")
+    captured: dict[str, list[str]] = {}
+
+    @add_app.command("http")
+    def add_http_command(
+        ctx: typer.Context,
+        name: str = typer.Option(..., "--name"),
+        local_ip: str = typer.Option("127.0.0.1", "--local-ip"),
+        local_port: int = typer.Option(..., "--local-port"),
+        custom_domain: list[str] | None = typer.Option(None, "--custom-domain"),
+        json_output: bool = typer.Option(False, "--json"),
+        instance: Path = typer.Option(Path("."), "--instance"),
+        sudo: bool = typer.Option(False, "--sudo"),
+    ) -> None:
+        captured["argv"] = build_command_invocation(
+            ctx,
+            overrides={"instance": tmp_path.resolve()},
+        ).argv
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "add",
+            "http",
+            "--name",
+            "web",
+            "--local-port",
+            "8080",
+            "--custom-domain",
+            "a.example.com",
+            "--custom-domain",
+            "b.example.com",
+            "--json",
+            "--sudo",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["argv"] == [
+        "proxy",
+        "add",
+        "http",
+        "--name",
+        "web",
+        "--local-port",
+        "8080",
+        "--custom-domain",
+        "a.example.com",
+        "--custom-domain",
+        "b.example.com",
+        "--json",
+        "--instance",
+        str(tmp_path.resolve()),
+    ]
+
+
+def test_build_command_invocation_serializes_dual_flag(tmp_path: Path) -> None:
+    app = typer.Typer()
+    captured: dict[str, list[str]] = {}
+
+    @app.callback()
+    def callback() -> None:
+        return
+
+    @app.command("upgrade")
+    def upgrade_command(
+        ctx: typer.Context,
+        instance: Path = typer.Option(Path("."), "--instance"),
+        restart_after: bool = typer.Option(True, "--restart/--no-restart"),
+        sudo: bool = typer.Option(False, "--sudo"),
+    ) -> None:
+        captured["argv"] = build_command_invocation(
+            ctx,
+            overrides={"instance": tmp_path.resolve()},
+        ).argv
+
+    result = RUNNER.invoke(app, ["upgrade", "--no-restart", "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["argv"] == ["upgrade", "--instance", str(tmp_path.resolve()), "--no-restart"]

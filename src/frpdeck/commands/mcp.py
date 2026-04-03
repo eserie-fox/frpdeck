@@ -9,6 +9,10 @@ from typing import Any
 
 import typer
 
+from frpdeck.commands._invocation import build_command_invocation
+from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges
+from frpdeck.domain.errors import PermissionOperationError
+from frpdeck.services.privilege import can_delete_path, can_write_file, root_owned_hint
 from frpdeck.services.audit import build_actor, record_audit_event
 from frpdeck.storage.file_lock import instance_lock
 from frpdeck.storage.load import load_node_config
@@ -132,6 +136,7 @@ def _record_wrapper_audit(
 
 @mcp_app.command("install-stdio-wrapper")
 def install_stdio_wrapper_command(
+    ctx: typer.Context,
     instance: Path = typer.Option(Path("."), "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"),
     python_path: Path | None = typer.Option(
         None,
@@ -143,26 +148,48 @@ def install_stdio_wrapper_command(
         help="Python interpreter to embed in the wrapper script. Defaults to the current frpdeck interpreter.",
     ),
     ssh_host: str = typer.Option(DEFAULT_SSH_HOST, "--ssh-host", help="Host shown in the Claude Code example command"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Install or update a bound stdio MCP wrapper script for one instance."""
     instance_dir = instance.resolve()
     script_path = instance_dir / WRAPPER_FILENAME
     workdir = _detect_safe_workdir(instance_dir)
     python_executable = resolve_wrapper_python_executable(python_path)
-    with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
-        before = _wrapper_state(script_path, instance_dir=instance_dir)
-        content = render_stdio_wrapper(instance_dir, python_executable=python_executable, workdir=workdir)
-        script_path.write_text(content, encoding="utf-8")
-        script_path.chmod(0o755)
-        after = _wrapper_state(script_path, instance_dir=instance_dir, python_executable=python_executable)
-        warning = _record_wrapper_audit(
-            instance_dir,
-            operation="mcp_wrapper_install",
-            target={"wrapper_path": script_path, "instance_dir": instance_dir},
-            before=before,
-            after=after,
-            result={"ok": True, "error_code": None, "errors": [], "warnings": []},
+    invocation = build_command_invocation(
+        ctx,
+        overrides={
+            "instance": instance_dir,
+            "python_path": python_path.resolve() if python_path is not None else None,
+        },
+    )
+    try:
+        if maybe_reexec_with_sudo(
+            operation="mcp install-stdio-wrapper",
+            sudo_requested=sudo,
+            invocation=invocation,
+        ):
+            return
+        raise_for_missing_privileges(
+            operation="mcp install-stdio-wrapper",
+            reasons=_analyze_wrapper_root_requirements(instance_dir, uninstall=False),
+            invocation=invocation,
         )
+        with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
+            before = _wrapper_state(script_path, instance_dir=instance_dir)
+            content = render_stdio_wrapper(instance_dir, python_executable=python_executable, workdir=workdir)
+            _write_wrapper_script(script_path, content)
+            after = _wrapper_state(script_path, instance_dir=instance_dir, python_executable=python_executable)
+            warning = _record_wrapper_audit(
+                instance_dir,
+                operation="mcp_wrapper_install",
+                target={"wrapper_path": script_path, "instance_dir": instance_dir},
+                before=before,
+                after=after,
+                result={"ok": True, "error_code": None, "errors": [], "warnings": []},
+            )
+    except PermissionOperationError as exc:
+        typer.echo(f"ERROR: {exc}")
+        raise typer.Exit(code=1) from exc
 
     typer.echo(f"{'Updated' if before['exists'] else 'Installed'} stdio wrapper.")
     typer.echo(build_install_summary(script_path, instance_dir=instance_dir, python_executable=python_executable))
@@ -173,14 +200,42 @@ def install_stdio_wrapper_command(
 
 @mcp_app.command("uninstall-stdio-wrapper")
 def uninstall_stdio_wrapper_command(
+    ctx: typer.Context,
     instance: Path = typer.Option(Path("."), "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Remove the bound stdio MCP wrapper script for one instance."""
     instance_dir = instance.resolve()
     script_path = instance_dir / WRAPPER_FILENAME
-    with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
-        before = _wrapper_state(script_path, instance_dir=instance_dir)
-        if not script_path.exists():
+    invocation = build_command_invocation(ctx, overrides={"instance": instance_dir})
+    try:
+        if maybe_reexec_with_sudo(
+            operation="mcp uninstall-stdio-wrapper",
+            sudo_requested=sudo,
+            invocation=invocation,
+        ):
+            return
+        raise_for_missing_privileges(
+            operation="mcp uninstall-stdio-wrapper",
+            reasons=_analyze_wrapper_root_requirements(instance_dir, uninstall=True),
+            invocation=invocation,
+        )
+        with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
+            before = _wrapper_state(script_path, instance_dir=instance_dir)
+            if not script_path.exists():
+                warning = _record_wrapper_audit(
+                    instance_dir,
+                    operation="mcp_wrapper_uninstall",
+                    target={"wrapper_path": script_path, "instance_dir": instance_dir},
+                    before=before,
+                    after=_wrapper_state(script_path, instance_dir=instance_dir),
+                    result={"ok": True, "error_code": None, "errors": [], "warnings": []},
+                )
+                typer.echo(f"Stdio wrapper already absent: {script_path}")
+                if warning is not None:
+                    typer.echo(f"WARNING: {warning}")
+                return
+            _remove_wrapper_script(script_path)
             warning = _record_wrapper_audit(
                 instance_dir,
                 operation="mcp_wrapper_uninstall",
@@ -189,19 +244,9 @@ def uninstall_stdio_wrapper_command(
                 after=_wrapper_state(script_path, instance_dir=instance_dir),
                 result={"ok": True, "error_code": None, "errors": [], "warnings": []},
             )
-            typer.echo(f"Stdio wrapper already absent: {script_path}")
-            if warning is not None:
-                typer.echo(f"WARNING: {warning}")
-            return
-        script_path.unlink()
-        warning = _record_wrapper_audit(
-            instance_dir,
-            operation="mcp_wrapper_uninstall",
-            target={"wrapper_path": script_path, "instance_dir": instance_dir},
-            before=before,
-            after=_wrapper_state(script_path, instance_dir=instance_dir),
-            result={"ok": True, "error_code": None, "errors": [], "warnings": []},
-        )
+    except PermissionOperationError as exc:
+        typer.echo(f"ERROR: {exc}")
+        raise typer.Exit(code=1) from exc
     typer.echo(f"Removed stdio wrapper: {script_path}")
     if warning is not None:
         typer.echo(f"WARNING: {warning}")
@@ -212,3 +257,39 @@ def _instance_name(instance_dir: Path) -> str | None:
         return load_node_config(instance_dir).instance_name
     except Exception:
         return None
+
+
+def _analyze_wrapper_root_requirements(instance_dir: Path, *, uninstall: bool) -> list[str]:
+    lock_path = instance_dir.resolve() / "state" / ".frpdeck.lock"
+    script_path = instance_dir.resolve() / WRAPPER_FILENAME
+    reasons: list[str] = []
+
+    if not can_write_file(lock_path):
+        reasons.append(f"instance lock path is not writable by current user: {lock_path}{root_owned_hint(lock_path)}")
+
+    if uninstall:
+        if script_path.exists() and not can_delete_path(script_path):
+            reasons.append(f"wrapper path is not removable by current user: {script_path}{root_owned_hint(script_path)}")
+    elif not can_write_file(script_path):
+        reasons.append(f"wrapper path is not writable by current user: {script_path}{root_owned_hint(script_path)}")
+
+    return reasons
+
+
+def _write_wrapper_script(script_path: Path, content: str) -> None:
+    try:
+        script_path.write_text(content, encoding="utf-8")
+        script_path.chmod(0o755)
+    except PermissionError as exc:
+        raise PermissionOperationError(
+            f"cannot update stdio wrapper at {script_path}; use sudo or adjust configured paths"
+        ) from exc
+
+
+def _remove_wrapper_script(script_path: Path) -> None:
+    try:
+        script_path.unlink()
+    except PermissionError as exc:
+        raise PermissionOperationError(
+            f"cannot remove stdio wrapper at {script_path}; use sudo or adjust configured paths"
+        ) from exc

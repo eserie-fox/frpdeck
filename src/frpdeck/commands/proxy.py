@@ -9,6 +9,8 @@ from typing import Callable, TypeVar
 import typer
 import yaml
 
+from frpdeck.commands._invocation import CommandInvocation, build_command_invocation
+from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
 from frpdeck.commands.output import (
     emit_json_envelope,
     serialize_mutation_result,
@@ -17,6 +19,7 @@ from frpdeck.commands.output import (
 )
 from frpdeck.domain.errors import (
     ConfigLoadError,
+    PermissionOperationError,
     ProxyAlreadyExistsError,
     ProxyConflictError,
     ProxyNotFoundError,
@@ -25,7 +28,7 @@ from frpdeck.domain.errors import (
 from frpdeck.domain.proxy import ProxyConfig
 from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult, ProxyUpdatePatch
 from frpdeck.logging import instance_logging_context
-from frpdeck.services.proxy_manager import ProxyManager, load_proxy_spec_from_file
+from frpdeck.services.proxy_manager import ProxyManager, analyze_proxy_write_root_requirements, load_proxy_spec_from_file
 
 
 proxy_app = typer.Typer(help="Structured local proxy management", no_args_is_help=True)
@@ -76,22 +79,40 @@ def show_command(
 
 @proxy_app.command("import")
 def import_command(
+    ctx: typer.Context,
     file: Path = typer.Argument(..., exists=True, dir_okay=False, resolve_path=True, help="Proxy spec YAML file"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Import one proxy definition from a YAML file."""
-    ctx = _command_context("proxy import", instance, json_output)
-    result = _run_proxy_action(
+    instance_dir = instance.resolve()
+    invocation = build_command_invocation(
         ctx,
-        lambda: MANAGER.import_proxy_file(ctx.instance_dir, file),
-        errors=(ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError),
+        overrides={
+            "file": file.resolve(),
+            "instance": instance_dir,
+        },
     )
+    result = _run_proxy_mutation_action(
+        command_name="proxy import",
+        instance=instance,
+        json_output=json_output,
+        sudo=sudo,
+        invocation=invocation,
+        action=lambda: MANAGER.import_proxy_file(instance_dir, file),
+        errors=(ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError),
+        extra_read_paths=[("proxy import file", file)],
+    )
+    if result is None:
+        return
+    ctx = _command_context("proxy import", instance, json_output)
     _emit_mutation_result(ctx, result)
 
 
 @proxy_add_app.command("tcp")
 def add_tcp_command(
+    ctx: typer.Context,
     name: str = typer.Option(..., "--name", help="Proxy name"),
     local_ip: str = typer.Option("127.0.0.1", "--local-ip", help="Local IP"),
     local_port: int = typer.Option(..., "--local-port", min=1, max=65535, help="Local port"),
@@ -99,9 +120,11 @@ def add_tcp_command(
     description: str | None = typer.Option(None, "--description", help="Description"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Add a common TCP proxy without a spec file."""
     _add_proxy_command(
+        ctx=ctx,
         command_name="proxy add tcp",
         payload={
             "name": name,
@@ -113,11 +136,13 @@ def add_tcp_command(
         },
         instance=instance,
         json_output=json_output,
+        sudo=sudo,
     )
 
 
 @proxy_add_app.command("udp")
 def add_udp_command(
+    ctx: typer.Context,
     name: str = typer.Option(..., "--name", help="Proxy name"),
     local_ip: str = typer.Option("127.0.0.1", "--local-ip", help="Local IP"),
     local_port: int = typer.Option(..., "--local-port", min=1, max=65535, help="Local port"),
@@ -125,9 +150,11 @@ def add_udp_command(
     description: str | None = typer.Option(None, "--description", help="Description"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Add a common UDP proxy without a spec file."""
     _add_proxy_command(
+        ctx=ctx,
         command_name="proxy add udp",
         payload={
             "name": name,
@@ -139,11 +166,13 @@ def add_udp_command(
         },
         instance=instance,
         json_output=json_output,
+        sudo=sudo,
     )
 
 
 @proxy_add_app.command("http")
 def add_http_command(
+    ctx: typer.Context,
     name: str = typer.Option(..., "--name", help="Proxy name"),
     local_ip: str = typer.Option("127.0.0.1", "--local-ip", help="Local IP"),
     local_port: int = typer.Option(..., "--local-port", min=1, max=65535, help="Local port"),
@@ -152,9 +181,11 @@ def add_http_command(
     description: str | None = typer.Option(None, "--description", help="Description"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Add a common HTTP proxy without a spec file."""
     _add_proxy_command(
+        ctx=ctx,
         command_name="proxy add http",
         payload={
             "name": name,
@@ -167,11 +198,13 @@ def add_http_command(
         },
         instance=instance,
         json_output=json_output,
+        sudo=sudo,
     )
 
 
 @proxy_add_app.command("https")
 def add_https_command(
+    ctx: typer.Context,
     name: str = typer.Option(..., "--name", help="Proxy name"),
     local_ip: str = typer.Option("127.0.0.1", "--local-ip", help="Local IP"),
     local_port: int = typer.Option(..., "--local-port", min=1, max=65535, help="Local port"),
@@ -180,9 +213,11 @@ def add_https_command(
     description: str | None = typer.Option(None, "--description", help="Description"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Add a common HTTPS proxy without a spec file."""
     _add_proxy_command(
+        ctx=ctx,
         command_name="proxy add https",
         payload={
             "name": name,
@@ -195,69 +230,118 @@ def add_https_command(
         },
         instance=instance,
         json_output=json_output,
+        sudo=sudo,
     )
 
 
 @proxy_app.command("update")
 def update_command(
+    ctx: typer.Context,
     name: str,
     file: Path = typer.Argument(..., exists=True, dir_okay=False, resolve_path=True, help="Proxy patch YAML file"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Patch an existing proxy from a YAML file."""
-    ctx = _command_context("proxy update", instance, json_output)
-
-    def action() -> ProxyMutationResult:
-        patch = ProxyUpdatePatch.model_validate(load_proxy_spec_from_file(file))
-        return MANAGER.update_proxy(ctx.instance_dir, name, patch)
-
-    result = _run_proxy_action(
+    instance_dir = instance.resolve()
+    invocation = build_command_invocation(
         ctx,
-        action,
-        errors=(ConfigLoadError, ProxyNotFoundError, ProxyAlreadyExistsError, ProxyConflictError, ValueError),
+        overrides={
+            "file": file.resolve(),
+            "instance": instance_dir,
+        },
     )
+    result = _run_proxy_mutation_action(
+        command_name="proxy update",
+        instance=instance,
+        json_output=json_output,
+        sudo=sudo,
+        invocation=invocation,
+        action=lambda: MANAGER.update_proxy(
+            instance_dir,
+            name,
+            ProxyUpdatePatch.model_validate(load_proxy_spec_from_file(file)),
+        ),
+        errors=(ConfigLoadError, ProxyNotFoundError, ProxyAlreadyExistsError, ProxyConflictError, ValueError),
+        extra_read_paths=[("proxy patch file", file)],
+    )
+    if result is None:
+        return
+    ctx = _command_context("proxy update", instance, json_output)
     _emit_mutation_result(ctx, result)
 
 
 @proxy_app.command("enable")
 def enable_command(
+    ctx: typer.Context,
     name: str,
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Enable a proxy in proxies.yaml."""
+    result = _run_proxy_mutation_action(
+        command_name="proxy enable",
+        instance=instance,
+        json_output=json_output,
+        sudo=sudo,
+        invocation=build_command_invocation(ctx, overrides={"instance": instance.resolve()}),
+        action=lambda: MANAGER.enable_proxy(instance.resolve(), name),
+        errors=(ConfigLoadError, ProxyNotFoundError),
+    )
+    if result is None:
+        return
     ctx = _command_context("proxy enable", instance, json_output)
-    result = _run_proxy_action(ctx, lambda: MANAGER.enable_proxy(ctx.instance_dir, name), errors=(ConfigLoadError, ProxyNotFoundError))
     _emit_mutation_result(ctx, result)
 
 
 @proxy_app.command("disable")
 def disable_command(
+    ctx: typer.Context,
     name: str,
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Disable a proxy in proxies.yaml."""
+    result = _run_proxy_mutation_action(
+        command_name="proxy disable",
+        instance=instance,
+        json_output=json_output,
+        sudo=sudo,
+        invocation=build_command_invocation(ctx, overrides={"instance": instance.resolve()}),
+        action=lambda: MANAGER.disable_proxy(instance.resolve(), name),
+        errors=(ConfigLoadError, ProxyNotFoundError),
+    )
+    if result is None:
+        return
     ctx = _command_context("proxy disable", instance, json_output)
-    result = _run_proxy_action(ctx, lambda: MANAGER.disable_proxy(ctx.instance_dir, name), errors=(ConfigLoadError, ProxyNotFoundError))
     _emit_mutation_result(ctx, result)
 
 
 @proxy_app.command("remove")
 def remove_command(
+    ctx: typer.Context,
     name: str,
     hard: bool = typer.Option(False, "--hard", help="Permanently delete instead of soft-disabling"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Remove a proxy, soft by default."""
-    ctx = _command_context("proxy remove", instance, json_output)
-    result = _run_proxy_action(
-        ctx,
-        lambda: MANAGER.remove_proxy(ctx.instance_dir, name, soft=not hard),
+    result = _run_proxy_mutation_action(
+        command_name="proxy remove",
+        instance=instance,
+        json_output=json_output,
+        sudo=sudo,
+        invocation=build_command_invocation(ctx, overrides={"instance": instance.resolve()}),
+        action=lambda: MANAGER.remove_proxy(instance.resolve(), name, soft=not hard),
         errors=(ConfigLoadError, ProxyNotFoundError),
     )
+    if result is None:
+        return
+    ctx = _command_context("proxy remove", instance, json_output)
     _emit_mutation_result(ctx, result)
 
 
@@ -282,17 +366,25 @@ def _command_context(command: str, instance: Path, json_output: bool) -> _ProxyC
 
 def _add_proxy_command(
     *,
+    ctx: typer.Context,
     command_name: str,
     payload: dict[str, object],
     instance: Path,
     json_output: bool,
+    sudo: bool,
 ) -> None:
-    ctx = _command_context(command_name, instance, json_output)
-    result = _run_proxy_action(
-        ctx,
-        lambda: MANAGER.add_proxy(ctx.instance_dir, payload),
+    result = _run_proxy_mutation_action(
+        command_name=command_name,
+        instance=instance,
+        json_output=json_output,
+        sudo=sudo,
+        invocation=build_command_invocation(ctx, overrides={"instance": instance.resolve()}),
+        action=lambda: MANAGER.add_proxy(instance.resolve(), payload),
         errors=(ConfigLoadError, ProxyAlreadyExistsError, ProxyConflictError),
     )
+    if result is None:
+        return
+    ctx = _command_context(command_name, instance, json_output)
     _emit_mutation_result(ctx, result)
 
 
@@ -307,6 +399,41 @@ def _run_proxy_action(
             return action()
     except errors as exc:
         _fail(ctx.command, ctx.instance_dir, str(exc), json_output=ctx.json_output)
+
+
+def _run_proxy_mutation_action(
+    *,
+    command_name: str,
+    instance: Path,
+    json_output: bool,
+    sudo: bool,
+    invocation: CommandInvocation,
+    action: Callable[[], CommandResult],
+    errors: tuple[type[BaseException], ...],
+    extra_read_paths: list[tuple[str, Path]] | None = None,
+) -> CommandResult | None:
+    ctx = _command_context(command_name, instance, json_output)
+    try:
+        if maybe_reexec_with_sudo(
+            operation=command_name,
+            sudo_requested=sudo,
+            invocation=invocation,
+        ):
+            return None
+        reasons = analyze_proxy_write_root_requirements(ctx.instance_dir)
+        for label, path in extra_read_paths or []:
+            reason = unreadable_path_reason(path, label=label)
+            if reason is not None and reason not in reasons:
+                reasons.append(reason)
+        raise_for_missing_privileges(
+            operation=command_name,
+            reasons=reasons,
+            invocation=invocation,
+        )
+        with instance_logging_context(ctx.instance_dir, stream_override=ctx.stream_override):
+            return action()
+    except errors + (PermissionOperationError,) as exc:
+        _fail(command_name, ctx.instance_dir, str(exc), json_output=json_output)
 
 
 def _emit_proxy_list(ctx: _ProxyCommandContext, proxies: list[ProxyConfig]) -> None:

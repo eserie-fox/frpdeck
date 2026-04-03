@@ -20,6 +20,8 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
             data = yaml.safe_load(handle) or {}
     except FileNotFoundError as exc:
         raise ConfigLoadError(f"config file not found: {path}") from exc
+    except OSError as exc:
+        raise ConfigLoadError(f"cannot read config file {path}: {exc}") from exc
     except yaml.YAMLError as exc:
         raise ConfigLoadError(f"invalid YAML in {path}: {exc}") from exc
     if not isinstance(data, dict):

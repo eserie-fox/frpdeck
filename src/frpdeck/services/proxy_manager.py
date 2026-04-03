@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from frpdeck.domain.enums import ProxyType, Role
 from frpdeck.domain.errors import (
     ConfigLoadError,
+    PermissionOperationError,
     ProxyAlreadyExistsError,
     ProxyConflictError,
     ProxyNotFoundError,
@@ -28,6 +29,7 @@ from frpdeck.domain.proxy import (
 )
 from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult, ProxyUpdatePatch, ValidationReport
 from frpdeck.services.audit import build_actor, new_event_id, read_text_snapshot, record_audit_event, revision_dir_path, write_proxy_revision, yaml_text, utc_timestamp
+from frpdeck.services.privilege import can_read_path, can_write_file, root_owned_hint
 from frpdeck.services.renderer import render_instance
 from frpdeck.storage.dump import dump_yaml_model
 from frpdeck.storage.file_lock import instance_lock
@@ -442,3 +444,22 @@ def load_proxy_spec_from_file(path: Path) -> dict[str, object]:
     """Load a proxy spec or patch document from YAML."""
     payload = load_yaml_file(path)
     return payload
+
+
+def analyze_proxy_write_root_requirements(instance_dir: Path) -> list[str]:
+    """Return the reasons why one proxy mutation requires elevated privileges."""
+    instance = instance_dir.resolve()
+    lock_path = instance / "state" / ".frpdeck.lock"
+    proxies_path = instance / "proxies.yaml"
+    reasons: list[str] = []
+
+    if not can_write_file(lock_path):
+        reasons.append(f"instance lock path is not writable by current user: {lock_path}{root_owned_hint(lock_path)}")
+
+    if proxies_path.exists() and not can_read_path(proxies_path):
+        reasons.append(f"proxy config is not readable by current user: {proxies_path}{root_owned_hint(proxies_path)}")
+
+    if not can_write_file(proxies_path):
+        reasons.append(f"proxy config is not writable by current user: {proxies_path}{root_owned_hint(proxies_path)}")
+
+    return reasons
