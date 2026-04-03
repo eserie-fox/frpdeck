@@ -14,6 +14,7 @@ from frpdeck.domain.enums import Role
 
 def test_config_default_resources_are_readable_via_package_loaders() -> None:
     client_defaults = load_node_defaults(Role.CLIENT)
+    server_defaults = load_node_defaults(Role.SERVER)
     client_overrides = load_scaffold_node_overrides(Role.CLIENT)
     server_overrides = load_scaffold_node_overrides(Role.SERVER)
     proxy_defaults = load_proxy_file_defaults()
@@ -23,12 +24,15 @@ def test_config_default_resources_are_readable_via_package_loaders() -> None:
 
     assert client_defaults["frpdeck_logging"]["stream"] == "stderr"
     assert client_defaults["client"]["log"]["level"] == "info"
+    assert server_defaults["server"]["vhost_http_port"] is None
+    assert server_defaults["server"]["vhost_https_port"] is None
     assert client_overrides["client"]["server_addr"] == "PLEASE_FILL_SERVER_ADDR"
     assert client_overrides["client"]["auth"]["token_file"] == "secrets/token.txt"
-    assert server_overrides["server"]["subdomain_host"] == "PLEASE_FILL_DOMAIN"
+    assert "subdomain_host" not in server_overrides["server"]
     assert server_overrides["server"]["auth"]["token_file"] == "secrets/token.txt"
     assert proxy_defaults == {"proxies": []}
-    assert proxy_overrides["proxies"][0]["name"] == "sample_tcp"
+    assert proxy_overrides["proxies"][0]["name"] == "sample_http"
+    assert proxy_overrides["proxies"][0]["type"] == "http"
     assert "rendered/proxies.d" in layout.common_directories
     assert "secrets" in layout.common_directories
     assert layout.directories_for_role(Role.CLIENT) == layout.common_directories

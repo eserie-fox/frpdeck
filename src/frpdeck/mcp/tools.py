@@ -15,6 +15,9 @@ from frpdeck.mcp.serialization import MCP_SCHEMA_VERSION, internal_error_result,
 from frpdeck.services.audit import audit_actor
 
 
+ProxyProtocol = Literal["tcp", "udp", "http", "https"]
+
+
 class ServerInfoResult(BaseModel):
     """Lightweight diagnostic payload for verifying MCP connectivity and mode."""
 
@@ -36,8 +39,41 @@ def get_proxy_tool(instance_dir: str | Path, name: str, *, facade: ProxyFacade |
     return (facade or ProxyFacade()).get_proxy(resolve_instance_dir(instance_dir), name)
 
 
-def add_proxy_tool(instance_dir: str | Path, proxy_spec: dict[str, Any], *, facade: ProxyFacade | None = None) -> FacadeResult:
-    return (facade or ProxyFacade()).add_proxy(resolve_instance_dir(instance_dir), proxy_spec)
+def add_proxy_tool(
+    instance_dir: str | Path,
+    *,
+    protocol: ProxyProtocol,
+    name: str,
+    local_port: int,
+    local_ip: str = "127.0.0.1",
+    description: str | None = None,
+    remote_port: int | None = None,
+    custom_domains: list[str] | None = None,
+    subdomain: str | None = None,
+    facade: ProxyFacade | None = None,
+) -> FacadeResult:
+    payload: dict[str, Any] = {
+        "type": protocol,
+        "name": name,
+        "local_ip": local_ip,
+        "local_port": local_port,
+        "description": description,
+    }
+    if protocol in {"tcp", "udp"}:
+        payload["remote_port"] = remote_port
+    else:
+        payload["custom_domains"] = list(custom_domains or [])
+        payload["subdomain"] = subdomain
+    return (facade or ProxyFacade()).add_proxy(resolve_instance_dir(instance_dir), payload)
+
+
+def import_proxy_file_tool(
+    instance_dir: str | Path,
+    file_path: str | Path,
+    *,
+    facade: ProxyFacade | None = None,
+) -> FacadeResult:
+    return (facade or ProxyFacade()).import_proxy_file(resolve_instance_dir(instance_dir), Path(file_path))
 
 
 def update_proxy_tool(
@@ -68,21 +104,8 @@ def disable_proxy_tool(instance_dir: str | Path, name: str, *, facade: ProxyFaca
     return (facade or ProxyFacade()).disable_proxy(resolve_instance_dir(instance_dir), name)
 
 
-def validate_proxy_set_tool(instance_dir: str | Path, *, facade: ProxyFacade | None = None) -> FacadeResult:
-    return (facade or ProxyFacade()).validate_proxy_set(resolve_instance_dir(instance_dir))
-
-
 def preview_proxy_changes_tool(instance_dir: str | Path, *, facade: ProxyFacade | None = None) -> FacadeResult:
     return (facade or ProxyFacade()).preview_proxy_changes(resolve_instance_dir(instance_dir))
-
-
-def apply_proxy_changes_tool(
-    instance_dir: str | Path,
-    reload: bool = True,
-    *,
-    facade: ProxyFacade | None = None,
-) -> FacadeResult:
-    return (facade or ProxyFacade()).apply_proxy_changes(resolve_instance_dir(instance_dir), reload=reload)
 
 
 def _finalize_facade_result(operation: str, instance_dir: str | Path, result: FacadeResult) -> FacadeResult:
@@ -119,7 +142,7 @@ def _server_info(mode: str, bound_instance_dir: Path | None, *, server_name: str
     )
 
 
-ToolShape = Literal["instance_only", "name", "proxy_spec", "update", "remove", "reload"]
+ToolShape = Literal["instance_only", "name", "update", "remove"]
 ToolArgs = tuple[Any, ...]
 ToolKwargs = dict[str, Any] | None
 ToolInvoker = Callable[[str | Path, ToolArgs, ToolKwargs], FacadeResult]
@@ -138,14 +161,11 @@ class ToolSpec:
 _TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec("list_proxies", "list_proxies", "List proxies from proxies.yaml for an instance directory.", "instance_only", "list_proxies_tool"),
     ToolSpec("get_proxy", "get_proxy", "Get a single proxy by name from proxies.yaml.", "name", "get_proxy_tool"),
-    ToolSpec("add_proxy", "add_proxy", "Add a structured proxy spec to proxies.yaml.", "proxy_spec", "add_proxy_tool"),
     ToolSpec("update_proxy", "update_proxy", "Apply a structured patch to an existing proxy.", "update", "update_proxy_tool"),
     ToolSpec("remove_proxy", "remove_proxy", "Remove a proxy, soft-disabling it by default.", "remove", "remove_proxy_tool"),
     ToolSpec("enable_proxy", "enable_proxy", "Enable a proxy in proxies.yaml.", "name", "enable_proxy_tool"),
     ToolSpec("disable_proxy", "disable_proxy", "Disable a proxy in proxies.yaml.", "name", "disable_proxy_tool"),
-    ToolSpec("validate_proxy_set", "validate_proxy_set", "Validate the current proxy set for an instance.", "instance_only", "validate_proxy_set_tool"),
     ToolSpec("preview_proxy_changes", "preview_proxy_changes", "Preview rendered proxy outputs without mutating rendered/.", "instance_only", "preview_proxy_changes_tool"),
-    ToolSpec("apply_proxy_changes", "apply_proxy_changes", "Validate, render, sync, and optionally reload client proxy changes.", "reload", "apply_proxy_changes_tool"),
 )
 
 
@@ -174,6 +194,21 @@ def register_tools(
     if mode == "bound" and bound_instance_dir is None:
         raise ValueError("bound MCP mode requires a bound_instance_dir")
 
+    server.add_tool(
+        _build_add_proxy_wrapper(bound_instance_dir, tool_facade, audit_meta),
+        name="add_proxy",
+        description=(
+            "Add one structured proxy definition to proxies.yaml. "
+            "Set protocol to tcp/udp/http/https. Use remote_port for tcp/udp. "
+            "Use custom_domains and/or subdomain for http/https."
+        ),
+    )
+    server.add_tool(
+        _build_import_proxy_file_wrapper(bound_instance_dir, tool_facade, audit_meta),
+        name="import_proxy_file",
+        description="Import one proxy definition from a local YAML file into proxies.yaml.",
+    )
+
     for spec in _TOOL_SPECS:
         server.add_tool(
             _build_tool_wrapper(
@@ -186,6 +221,105 @@ def register_tools(
             name=spec.name,
             description=spec.description,
         )
+
+
+def _build_add_proxy_wrapper(
+    bound_instance_dir: Path | None,
+    facade: ProxyFacade,
+    audit_meta: dict[str, Any],
+) -> Callable[..., FacadeResult]:
+    if bound_instance_dir is not None:
+        def tool(
+            protocol: ProxyProtocol,
+            name: str,
+            local_port: int,
+            local_ip: str = "127.0.0.1",
+            description: str | None = None,
+            remote_port: int | None = None,
+            custom_domains: list[str] | None = None,
+            subdomain: str | None = None,
+        ) -> FacadeResult:
+            return _safe_facade_call(
+                "add_proxy",
+                bound_instance_dir,
+                lambda: add_proxy_tool(
+                    bound_instance_dir,
+                    protocol=protocol,
+                    name=name,
+                    local_port=local_port,
+                    local_ip=local_ip,
+                    description=description,
+                    remote_port=remote_port,
+                    custom_domains=custom_domains,
+                    subdomain=subdomain,
+                    facade=facade,
+                ),
+                audit_source="mcp",
+                audit_meta=audit_meta,
+            )
+
+        return tool
+
+    def tool(
+        instance_dir: str,
+        protocol: ProxyProtocol,
+        name: str,
+        local_port: int,
+        local_ip: str = "127.0.0.1",
+        description: str | None = None,
+        remote_port: int | None = None,
+        custom_domains: list[str] | None = None,
+        subdomain: str | None = None,
+    ) -> FacadeResult:
+        return _safe_facade_call(
+            "add_proxy",
+            instance_dir,
+            lambda: add_proxy_tool(
+                instance_dir,
+                protocol=protocol,
+                name=name,
+                local_port=local_port,
+                local_ip=local_ip,
+                description=description,
+                remote_port=remote_port,
+                custom_domains=custom_domains,
+                subdomain=subdomain,
+                facade=facade,
+            ),
+            audit_source="mcp",
+            audit_meta=audit_meta,
+        )
+
+    return tool
+
+
+def _build_import_proxy_file_wrapper(
+    bound_instance_dir: Path | None,
+    facade: ProxyFacade,
+    audit_meta: dict[str, Any],
+) -> Callable[..., FacadeResult]:
+    if bound_instance_dir is not None:
+        def tool(file_path: str) -> FacadeResult:
+            return _safe_facade_call(
+                "import_proxy_file",
+                bound_instance_dir,
+                lambda: import_proxy_file_tool(bound_instance_dir, file_path, facade=facade),
+                audit_source="mcp",
+                audit_meta=audit_meta,
+            )
+
+        return tool
+
+    def tool(instance_dir: str, file_path: str) -> FacadeResult:
+        return _safe_facade_call(
+            "import_proxy_file",
+            instance_dir,
+            lambda: import_proxy_file_tool(instance_dir, file_path, facade=facade),
+            audit_source="mcp",
+            audit_meta=audit_meta,
+        )
+
+    return tool
 
 
 def _build_tool_wrapper(
@@ -268,19 +402,6 @@ def _build_name_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     return tool
 
 
-def _build_proxy_spec_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
-    if bound_instance_dir is not None:
-        def tool(proxy_spec: dict[str, Any]) -> FacadeResult:
-            return invoke(bound_instance_dir, (proxy_spec,))
-
-        return tool
-
-    def tool(instance_dir: str, proxy_spec: dict[str, Any]) -> FacadeResult:
-        return invoke(instance_dir, (proxy_spec,))
-
-    return tool
-
-
 def _build_update_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     if bound_instance_dir is not None:
         def tool(name: str, patch_spec: dict[str, Any]) -> FacadeResult:
@@ -307,24 +428,9 @@ def _build_remove_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     return tool
 
 
-def _build_reload_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
-    if bound_instance_dir is not None:
-        def tool(reload: bool = True) -> FacadeResult:
-            return invoke(bound_instance_dir, (), {"reload": reload})
-
-        return tool
-
-    def tool(instance_dir: str, reload: bool = True) -> FacadeResult:
-        return invoke(instance_dir, (), {"reload": reload})
-
-    return tool
-
-
 _SHAPE_BUILDERS: dict[ToolShape, ToolWrapperBuilder] = {
     "instance_only": _build_instance_only_tool,
     "name": _build_name_tool,
-    "proxy_spec": _build_proxy_spec_tool,
     "update": _build_update_tool,
     "remove": _build_remove_tool,
-    "reload": _build_reload_tool,
 }

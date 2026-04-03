@@ -12,14 +12,13 @@ from frpdeck.domain.errors import (
     CommandExecutionError,
     ConfigLoadError,
     ProxyAlreadyExistsError,
-    ProxyApplyError,
     ProxyConflictError,
     ProxyNotFoundError,
     UnsupportedOperationError,
 )
 from frpdeck.domain.facade_models import FacadeResult
 from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyConfig, TcpProxyConfig, UdpProxyConfig
-from frpdeck.domain.proxy_management import ApplyReport, PreviewReport, ProxyMutationResult, ValidationReport
+from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult
 from frpdeck.logging import instance_logging_context
 from frpdeck.services.proxy_manager import ProxyManager
 
@@ -56,6 +55,16 @@ class ProxyFacade:
         try:
             with instance_logging_context(instance):
                 result = self._manager.add_proxy(instance, proxy_spec)
+            return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
+        except Exception as exc:
+            return self._error(operation, instance, exc)
+
+    def import_proxy_file(self, instance_dir: Path, file_path: Path) -> FacadeResult:
+        operation = "import_proxy_file"
+        instance = instance_dir.resolve()
+        try:
+            with instance_logging_context(instance):
+                result = self._manager.import_proxy_file(instance, file_path.resolve())
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:
             return self._error(operation, instance, exc)
@@ -100,27 +109,6 @@ class ProxyFacade:
         except Exception as exc:
             return self._error(operation, instance, exc)
 
-    def validate_proxy_set(self, instance_dir: Path) -> FacadeResult:
-        operation = "validate_proxy_set"
-        instance = instance_dir.resolve()
-        try:
-            with instance_logging_context(instance):
-                report = self._manager.validate_proxy_set(instance)
-            data = self._serialize_validation_report(report)
-            if report.ok:
-                return self._success(operation, instance, data, warnings=report.warnings)
-            return FacadeResult(
-                ok=False,
-                operation=operation,
-                instance=str(instance),
-                data=data,
-                error_code="validation_failed",
-                errors=list(report.errors),
-                warnings=list(report.warnings),
-            )
-        except Exception as exc:
-            return self._error(operation, instance, exc)
-
     def preview_proxy_changes(self, instance_dir: Path) -> FacadeResult:
         operation = "preview_proxy_changes"
         instance = instance_dir.resolve()
@@ -136,28 +124,6 @@ class ProxyFacade:
                 instance=str(instance),
                 data=data,
                 error_code="validation_failed",
-                errors=list(report.errors),
-                warnings=list(report.warnings),
-            )
-        except Exception as exc:
-            return self._error(operation, instance, exc)
-
-    def apply_proxy_changes(self, instance_dir: Path, reload: bool = True) -> FacadeResult:
-        operation = "apply_proxy_changes"
-        instance = instance_dir.resolve()
-        try:
-            with instance_logging_context(instance):
-                applied_proxies = [proxy.name for proxy in self._manager.list_proxies(instance) if proxy.enabled]
-                report = self._manager.apply_proxy_changes(instance, reload=reload)
-            data = self._serialize_apply_report(report, applied_proxies)
-            if report.ok:
-                return self._success(operation, instance, data, warnings=report.warnings)
-            return FacadeResult(
-                ok=False,
-                operation=operation,
-                instance=str(instance),
-                data=data,
-                error_code="validation_failed" if report.step == "validate" else "apply_failed",
                 errors=list(report.errors),
                 warnings=list(report.warnings),
             )
@@ -190,8 +156,6 @@ class ProxyFacade:
             return "proxy_already_exists"
         if isinstance(exc, ProxyConflictError):
             return "proxy_conflict"
-        if isinstance(exc, ProxyApplyError):
-            return "apply_failed"
         if isinstance(exc, UnsupportedOperationError):
             return "unsupported_role"
         if isinstance(exc, ConfigLoadError):
@@ -241,34 +205,12 @@ class ProxyFacade:
             "proxy": self._serialize_proxy(result.proxy) if result.proxy is not None else None,
         }
 
-    def _serialize_validation_report(self, report: ValidationReport) -> dict[str, Any]:
-        return {
-            "ok": report.ok,
-            "error_count": len(report.errors),
-            "warning_count": len(report.warnings),
-            "errors": list(report.errors),
-            "warnings": list(report.warnings),
-        }
-
     def _serialize_preview_report(self, report: PreviewReport) -> dict[str, Any]:
         return {
             "valid": report.ok,
             "enabled_proxies": list(report.enabled_proxies),
             "disabled_proxies": list(report.disabled_proxies),
             "rendered_files": list(report.rendered_proxy_files),
-            "errors": list(report.errors),
-            "warnings": list(report.warnings),
-        }
-
-    def _serialize_apply_report(self, report: ApplyReport, applied_proxies: list[str]) -> dict[str, Any]:
-        return {
-            "success": report.ok,
-            "step": report.step,
-            "reloaded": report.reloaded,
-            "reload_requested": report.reload_requested,
-            "reload_output": report.reload_output,
-            "rendered_files": list(report.rendered_proxy_files),
-            "applied_proxies": list(applied_proxies),
             "errors": list(report.errors),
             "warnings": list(report.warnings),
         }

@@ -5,7 +5,7 @@ import logging
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig
 from frpdeck.facade.proxy_facade import ProxyFacade
 from frpdeck.storage.dump import dump_yaml_model
-from tests.support import build_client_node, build_server_node
+from tests.support import build_client_node
 
 
 def _write_client_instance(
@@ -19,13 +19,6 @@ def _write_client_instance(
         instance_dir / "node.yaml",
     )
     dump_yaml_model(ProxyFile(proxies=list(proxies or [])), instance_dir / "proxies.yaml")
-
-
-def _write_server_instance(instance_dir: Path) -> None:
-    dump_yaml_model(
-        build_server_node(),
-        instance_dir / "node.yaml",
-    )
 
 
 def test_list_proxies_returns_schema_and_jsonable_data(tmp_path: Path) -> None:
@@ -62,24 +55,35 @@ def test_add_and_update_map_expected_error_codes(tmp_path: Path) -> None:
     assert invalid_update.error_code == "proxy_conflict"
 
 
-def test_preview_returns_uniform_data_and_apply_rejects_server_role(tmp_path: Path) -> None:
+def test_import_and_preview_return_uniform_data(tmp_path: Path) -> None:
     _write_client_instance(tmp_path, [TcpProxyConfig(name="ssh", local_port=22, remote_port=6000)])
     facade = ProxyFacade()
+    import_file = tmp_path / "web.yaml"
+    import_file.write_text(
+        "\n".join(
+            [
+                "name: imported-web",
+                "type: http",
+                "local_port: 8080",
+                "custom_domains:",
+                "  - imported.example.com",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    imported = facade.import_proxy_file(tmp_path, import_file)
+
+    assert imported.ok is True
+    assert imported.operation == "import_proxy_file"
+    assert imported.data["proxy"]["name"] == "imported-web"
 
     preview = facade.preview_proxy_changes(tmp_path)
 
     assert preview.ok is True
     assert preview.operation == "preview_proxy_changes"
-    assert preview.data["enabled_proxies"] == ["ssh"]
-
-    server_dir = tmp_path / "server"
-    server_dir.mkdir()
-    _write_server_instance(server_dir)
-
-    apply_result = facade.apply_proxy_changes(server_dir)
-
-    assert apply_result.ok is False
-    assert apply_result.error_code == "unsupported_role"
+    assert preview.data["enabled_proxies"] == ["ssh", "imported-web"]
 
 
 def test_facade_applies_instance_logging_for_bound_calls(tmp_path: Path) -> None:

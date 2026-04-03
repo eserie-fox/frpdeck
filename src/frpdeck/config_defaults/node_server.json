@@ -30,8 +30,8 @@
     "bind_port": 7000,
     "kcp_bind_port": null,
     "quic_bind_port": null,
-    "vhost_http_port": 80,
-    "vhost_https_port": 443,
+    "vhost_http_port": null,
+    "vhost_https_port": null,
     "log": {
       "to": "runtime/logs/frps.log",
       "level": "info",

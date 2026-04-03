@@ -12,7 +12,7 @@ import typer
 from pydantic import BaseModel
 
 from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyConfig, TcpProxyConfig, UdpProxyConfig
-from frpdeck.domain.proxy_management import ApplyReport, PreviewReport, ProxyMutationResult, ValidationReport
+from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult
 
 
 def emit_json_envelope(
@@ -84,17 +84,6 @@ def serialize_proxy(proxy: ProxyConfig) -> dict[str, Any]:
     }
 
 
-def serialize_validation_report(report: ValidationReport) -> dict[str, Any]:
-    """Return a stable validation payload."""
-    return {
-        "ok": report.ok,
-        "error_count": len(report.errors),
-        "warning_count": len(report.warnings),
-        "errors": list(report.errors),
-        "warnings": list(report.warnings),
-    }
-
-
 def serialize_preview_report(report: PreviewReport) -> dict[str, Any]:
     """Return a stable preview payload."""
     return {
@@ -102,21 +91,6 @@ def serialize_preview_report(report: PreviewReport) -> dict[str, Any]:
         "enabled_proxies": list(report.enabled_proxies),
         "disabled_proxies": list(report.disabled_proxies),
         "rendered_files": list(report.rendered_proxy_files),
-        "errors": list(report.errors),
-        "warnings": list(report.warnings),
-    }
-
-
-def serialize_apply_report(report: ApplyReport, *, applied_proxies: list[str] | None = None) -> dict[str, Any]:
-    """Return a stable apply payload."""
-    return {
-        "success": report.ok,
-        "step": report.step,
-        "reloaded": report.reloaded,
-        "reload_requested": report.reload_requested,
-        "reload_output": report.reload_output,
-        "rendered_files": list(report.rendered_proxy_files),
-        "applied_proxies": list(applied_proxies or []),
         "errors": list(report.errors),
         "warnings": list(report.warnings),
     }

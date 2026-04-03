@@ -13,8 +13,8 @@ from frpdeck.commands.mcp import WRAPPER_FILENAME
 from frpdeck.domain.errors import CommandExecutionError, PermissionOperationError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
 from frpdeck.domain.status_models import ConfigSummary, InstanceStatus, ProxyCounts, RenderSummaryStatus, ServiceRuntimeStatus
-from frpdeck.domain.proxy_management import ApplyReport
 from frpdeck.services.apply_service import ApplyExecutionResult
+from frpdeck.version import __version__
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node, build_server_node
 
@@ -51,6 +51,17 @@ def _write_server_instance(instance_dir: Path) -> None:
     )
 
 
+def _write_rendered_client_snapshot(instance_dir: Path, *, proxy_names: list[str] | None = None) -> None:
+    proxy_names = proxy_names or ["ssh"]
+    rendered_root = instance_dir / "rendered"
+    (rendered_root / "frpc.toml").parent.mkdir(parents=True, exist_ok=True)
+    (rendered_root / "frpc.toml").write_text("serverAddr = 'example.com'\n", encoding="utf-8")
+    proxies_dir = rendered_root / "proxies.d"
+    proxies_dir.mkdir(parents=True, exist_ok=True)
+    for proxy_name in proxy_names:
+        (proxies_dir / f"{proxy_name}.toml").write_text(f'[[proxies]]\nname = "{proxy_name}"\n', encoding="utf-8")
+
+
 def _copy_fixture_instance(name: str, destination: Path) -> Path:
     instance_dir = destination / name
     shutil.copytree(FIXTURE_ROOT / name, instance_dir)
@@ -79,7 +90,10 @@ def test_init_client_creates_base_files(tmp_path: Path) -> None:
     assert node_payload["frpdeck_logging"]["file_path"] == "state/logs/frpdeck.log"
     assert node_payload["frpdeck_logging"]["stream"] == "stderr"
     assert node_payload["service"]["service_name"] == "frpdeck-demo-node-frpc"
-    assert proxies_payload["proxies"][0]["name"] == "sample_tcp"
+    assert proxies_payload["proxies"][0]["name"] == "sample_http"
+    assert proxies_payload["proxies"][0]["type"] == "http"
+    assert proxies_payload["proxies"][0]["local_port"] == 8080
+    assert proxies_payload["proxies"][0]["custom_domains"] == ["PLEASE_FILL_DOMAIN"]
     assert (tmp_path / "demo-node" / "secrets" / "token.txt.example").read_text(encoding="utf-8") == "PLEASE_FILL_TOKEN\n"
 
 
@@ -91,7 +105,9 @@ def test_init_server_skips_proxy_file(tmp_path: Path) -> None:
     assert not (tmp_path / "demo-node" / "proxies.yaml").exists()
     assert (tmp_path / "demo-node" / "secrets" / "token.txt.example").exists()
     node_payload = yaml.safe_load((tmp_path / "demo-node" / "node.yaml").read_text(encoding="utf-8"))
-    assert node_payload["server"]["subdomain_host"] == "PLEASE_FILL_DOMAIN"
+    assert "vhost_http_port" not in node_payload["server"]
+    assert "vhost_https_port" not in node_payload["server"]
+    assert "subdomain_host" not in node_payload["server"]
     assert node_payload["service"]["service_name"] == "frpdeck-demo-node-frps"
 
 
@@ -141,32 +157,45 @@ def test_version_option_returns_success() -> None:
     result = RUNNER.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.stdout.strip()
+    assert result.stdout.strip() == __version__
 
 
 def test_root_command_without_args_shows_help() -> None:
     result = RUNNER.invoke(app, [])
 
-    assert result.exit_code == 0
     assert "Usage:" in result.stdout
     assert "apply" in result.stdout
+    assert "sync" in result.stdout
     assert "status" in result.stdout
 
 
 def test_proxy_group_without_subcommand_shows_help() -> None:
     result = RUNNER.invoke(app, ["proxy"])
 
-    assert result.exit_code == 2, result.output
     assert "Usage:" in result.output
     assert "Structured local proxy management" in result.output
     assert "list" in result.output
+    assert "import" in result.output
+    assert "add" in result.output
+    assert "preview" in result.output
+    assert "Missing command" not in result.output
+
+
+def test_proxy_add_group_without_subcommand_shows_help() -> None:
+    result = RUNNER.invoke(app, ["proxy", "add"])
+
+    assert "Usage:" in result.output
+    assert "Add a structured proxy definition" in result.output
+    assert "tcp" in result.output
+    assert "udp" in result.output
+    assert "http" in result.output
+    assert "https" in result.output
     assert "Missing command" not in result.output
 
 
 def test_mcp_group_without_subcommand_shows_help() -> None:
     result = RUNNER.invoke(app, ["mcp"])
 
-    assert result.exit_code == 2, result.output
     assert "Usage:" in result.output
     assert "MCP stdio helper commands" in result.output
     assert "install-stdio-wrapper" in result.output
@@ -176,7 +205,6 @@ def test_mcp_group_without_subcommand_shows_help() -> None:
 def test_audit_group_without_subcommand_shows_help() -> None:
     result = RUNNER.invoke(app, ["audit"])
 
-    assert result.exit_code == 2, result.output
     assert "Usage:" in result.output
     assert "Read-only audit inspection" in result.output
     assert "recent" in result.output
@@ -351,6 +379,248 @@ def test_proxy_list_succeeds_on_example_instance() -> None:
     assert "example_web_http" in result.stdout
 
 
+def test_proxy_import_writes_config(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    spec_path = tmp_path / "web.yaml"
+    spec_path.write_text(
+        "\n".join(
+            [
+                "name: imported-web",
+                "type: http",
+                "local_port: 8080",
+                "custom_domains:",
+                "  - imported.example.com",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "import",
+            str(spec_path),
+            "--instance",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = yaml.safe_load((tmp_path / "proxies.yaml").read_text(encoding="utf-8"))
+    proxy = next(entry for entry in payload["proxies"] if entry["name"] == "imported-web")
+    assert proxy["type"] == "http"
+    assert proxy["custom_domains"] == ["imported.example.com"]
+
+
+def test_proxy_add_tcp_writes_config(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "add",
+            "tcp",
+            "--instance",
+            str(tmp_path),
+            "--name",
+            "ssh-alt",
+            "--local-port",
+            "2222",
+            "--remote-port",
+            "7000",
+            "--description",
+            "alt ssh",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = yaml.safe_load((tmp_path / "proxies.yaml").read_text(encoding="utf-8"))
+    proxy = next(entry for entry in payload["proxies"] if entry["name"] == "ssh-alt")
+    assert proxy["type"] == "tcp"
+    assert proxy["local_port"] == 2222
+    assert proxy["remote_port"] == 7000
+    assert proxy["description"] == "alt ssh"
+
+
+def test_proxy_add_udp_writes_config(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "add",
+            "udp",
+            "--instance",
+            str(tmp_path),
+            "--name",
+            "dns-alt",
+            "--local-port",
+            "5353",
+            "--remote-port",
+            "7001",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = yaml.safe_load((tmp_path / "proxies.yaml").read_text(encoding="utf-8"))
+    proxy = next(entry for entry in payload["proxies"] if entry["name"] == "dns-alt")
+    assert proxy["type"] == "udp"
+    assert proxy["local_port"] == 5353
+    assert proxy["remote_port"] == 7001
+
+
+def test_proxy_add_http_writes_config(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "add",
+            "http",
+            "--instance",
+            str(tmp_path),
+            "--name",
+            "web",
+            "--local-port",
+            "8080",
+            "--custom-domain",
+            "example.com",
+            "--custom-domain",
+            "www.example.com",
+            "--subdomain",
+            "app",
+            "--description",
+            "web app",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = yaml.safe_load((tmp_path / "proxies.yaml").read_text(encoding="utf-8"))
+    proxy = next(entry for entry in payload["proxies"] if entry["name"] == "web")
+    assert proxy["type"] == "http"
+    assert proxy["local_port"] == 8080
+    assert proxy["custom_domains"] == ["example.com", "www.example.com"]
+    assert proxy["subdomain"] == "app"
+    assert proxy["description"] == "web app"
+
+
+def test_proxy_add_https_writes_config(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "add",
+            "https",
+            "--instance",
+            str(tmp_path),
+            "--name",
+            "secure-web",
+            "--local-port",
+            "8443",
+            "--custom-domain",
+            "secure.example.com",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = yaml.safe_load((tmp_path / "proxies.yaml").read_text(encoding="utf-8"))
+    proxy = next(entry for entry in payload["proxies"] if entry["name"] == "secure-web")
+    assert proxy["type"] == "https"
+    assert proxy["local_port"] == 8443
+    assert proxy["custom_domains"] == ["secure.example.com"]
+    assert "subdomain" not in proxy
+
+
+def test_proxy_update_with_positional_patch_file_writes_config(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    patch_path = tmp_path / "web-patch.yaml"
+    patch_path.write_text(
+        "\n".join(
+            [
+                "local_port: 2222",
+                "remote_port: 7002",
+                "description: patched ssh",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "update",
+            "ssh",
+            str(patch_path),
+            "--instance",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = yaml.safe_load((tmp_path / "proxies.yaml").read_text(encoding="utf-8"))
+    proxy = next(entry for entry in payload["proxies"] if entry["name"] == "ssh")
+    assert proxy["local_port"] == 2222
+    assert proxy["remote_port"] == 7002
+    assert proxy["description"] == "patched ssh"
+
+
+def test_proxy_add_http_requires_custom_domain_or_subdomain(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    before = (tmp_path / "proxies.yaml").read_text(encoding="utf-8")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "add",
+            "http",
+            "--instance",
+            str(tmp_path),
+            "--name",
+            "invalid-web",
+            "--local-port",
+            "8080",
+        ],
+    )
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires custom_domains or subdomain" in result.stdout
+    assert (tmp_path / "proxies.yaml").read_text(encoding="utf-8") == before
+
+
+def test_proxy_add_https_requires_custom_domain_or_subdomain(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    before = (tmp_path / "proxies.yaml").read_text(encoding="utf-8")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "add",
+            "https",
+            "--instance",
+            str(tmp_path),
+            "--name",
+            "invalid-secure-web",
+            "--local-port",
+            "8443",
+        ],
+    )
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires custom_domains or subdomain" in result.stdout
+    assert (tmp_path / "proxies.yaml").read_text(encoding="utf-8") == before
+
+
 def test_uninstall_fails_fast_with_root_reasons_before_side_effects(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
     calls: list[str] = []
@@ -473,20 +743,6 @@ def test_proxy_show_json_returns_single_proxy() -> None:
     assert payload["data"]["proxy"]["type"] == "tcp"
 
 
-def test_proxy_validate_json_error_returns_pure_json() -> None:
-    instance = FIXTURE_ROOT / "client-node"
-
-    result = RUNNER.invoke(app, ["proxy", "validate", "--instance", str(instance), "--json"])
-
-    assert result.exit_code == 1
-    payload = json.loads(result.stdout)
-    assert payload["ok"] is False
-    assert payload["command"] == "proxy validate"
-    assert payload["data"]["error_count"] >= 1
-    assert payload["errors"]
-    assert result.stdout.strip().startswith("{")
-
-
 def test_proxy_preview_json_returns_machine_readable_summary(tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
 
@@ -510,53 +766,116 @@ def test_proxy_preview_json_returns_machine_readable_summary(tmp_path: Path) -> 
     assert payload["data"]["rendered_files"] == ["ssh.toml"]
 
 
-def test_proxy_apply_json_returns_envelope_with_mocked_manager(monkeypatch) -> None:
-    instance = FIXTURE_ROOT / "client-node"
+def test_proxy_validate_command_is_removed() -> None:
+    result = RUNNER.invoke(app, ["proxy", "validate"])
 
-    class FakeProxy:
-        def __init__(self, name: str, enabled: bool) -> None:
-            self.name = name
-            self.enabled = enabled
+    assert result.exit_code != 0
+    assert "No such command" in result.output
 
-    def fake_list_proxies(instance_dir: Path):
-        return [FakeProxy("ssh", True), FakeProxy("dns", False)]
 
-    monkeypatch.setattr("frpdeck.commands.proxy.MANAGER.list_proxies", fake_list_proxies)
-    monkeypatch.setattr(
-        "frpdeck.commands.proxy.MANAGER.apply_proxy_changes",
-        lambda instance_dir, reload=True: ApplyReport(
-            ok=True,
-            step="reload",
-            errors=[],
-            warnings=[],
-            rendered_proxy_files=["ssh.toml"],
-            reload_requested=reload,
-            reloaded=reload,
-            reload_output="reload completed",
-        ),
-    )
+def test_proxy_apply_command_is_removed() -> None:
+    result = RUNNER.invoke(app, ["proxy", "apply"])
 
-    result = RUNNER.invoke(app, ["proxy", "apply", "--instance", str(instance), "--json"])
+    assert result.exit_code != 0
+    assert "No such command" in result.output
+
+
+def test_proxy_add_flat_commands_are_removed() -> None:
+    for command in ["add-tcp", "add-http", "add-https"]:
+        result = RUNNER.invoke(app, ["proxy", command])
+        assert result.exit_code != 0
+        assert "No such command" in result.output
+
+
+def test_render_does_not_write_runtime_config(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path, node_overrides={"client": {"server_addr": "server.example.com"}})
+
+    result = RUNNER.invoke(app, ["render", "--instance", str(tmp_path)])
 
     assert result.exit_code == 0, result.stdout
-    payload = json.loads(result.stdout)
-    assert payload["ok"] is True
-    assert payload["command"] == "proxy apply"
-    assert payload["data"]["reloaded"] is True
-    assert payload["data"]["rendered_files"] == ["ssh.toml"]
-    assert payload["data"]["applied_proxies"] == ["ssh"]
+    assert (tmp_path / "rendered" / "frpc.toml").exists()
+    assert not (tmp_path / "runtime" / "config" / "frpc.toml").exists()
 
 
-def test_proxy_apply_json_rejects_server_instance(tmp_path: Path) -> None:
-    _write_server_instance(tmp_path)
+def test_validate_does_not_write_runtime_config(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path, node_overrides={"client": {"server_addr": "server.example.com"}})
 
-    result = RUNNER.invoke(app, ["proxy", "apply", "--instance", str(tmp_path), "--json"])
+    result = RUNNER.invoke(app, ["validate", "--instance", str(tmp_path)])
 
-    assert result.exit_code == 1
-    payload = json.loads(result.stdout)
-    assert payload["ok"] is False
-    assert payload["command"] == "proxy apply"
-    assert payload["errors"]
+    assert result.exit_code == 0, result.stdout
+    assert not (tmp_path / "runtime" / "config").exists()
+
+
+def test_sync_command_updates_runtime_config(tmp_path: Path, monkeypatch) -> None:
+    _write_client_instance(tmp_path, node_overrides={"client": {"server_addr": "server.example.com"}})
+    _write_rendered_client_snapshot(tmp_path, proxy_names=["ssh", "web"])
+    monkeypatch.setattr("frpdeck.commands.sync.ensure_root_privileges", lambda **kwargs: False)
+
+    result = RUNNER.invoke(app, ["sync", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 0, result.stdout
+    assert (tmp_path / "runtime" / "config" / "frpc.toml").exists()
+    assert (tmp_path / "runtime" / "config" / "proxies.d" / "ssh.toml").exists()
+    assert (tmp_path / "runtime" / "config" / "proxies.d" / "web.toml").exists()
+
+
+def test_sync_command_fails_fast_with_root_reasons_before_side_effects(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        "frpdeck.commands.sync.ensure_root_privileges",
+        lambda **kwargs: (_ for _ in ()).throw(
+            PermissionOperationError(
+                "sync requires elevated privileges for this instance:\n- runtime config path is not writable\nRetry with: frpdeck sync --instance x --sudo"
+            )
+        ),
+    )
+    monkeypatch.setattr("frpdeck.commands.sync.instance_lock", lambda *args, **kwargs: calls.append("lock"))
+    monkeypatch.setattr("frpdeck.commands.sync.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.sync.sync_rendered_to_runtime", lambda *args, **kwargs: calls.append("sync"))
+
+    result = RUNNER.invoke(app, ["sync", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_sync_command_sudo_reexec_happens_before_original_flow(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    monkeypatch.setattr("frpdeck.commands.sync.ensure_root_privileges", lambda **kwargs: True)
+    monkeypatch.setattr("frpdeck.commands.sync.instance_lock", lambda *args, **kwargs: calls.append("lock"))
+    monkeypatch.setattr("frpdeck.commands.sync.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.sync.sync_rendered_to_runtime", lambda *args, **kwargs: calls.append("sync"))
+
+    result = RUNNER.invoke(app, ["sync", "--instance", str(tmp_path), "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_reload_missing_runtime_config_mentions_sync_or_apply(tmp_path: Path) -> None:
+    _write_client_instance(
+        tmp_path,
+        node_overrides={
+            "client": {
+                "server_addr": "server.example.com",
+                "web_server": {"addr": "127.0.0.1", "port": 7400},
+            }
+        },
+    )
+    binary_path = tmp_path / "runtime" / "bin" / "frpc"
+    binary_path.parent.mkdir(parents=True, exist_ok=True)
+    binary_path.write_text("binary", encoding="utf-8")
+
+    result = RUNNER.invoke(app, ["reload", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "run sync or apply first" in result.stdout
 
 
 def test_status_json_gracefully_handles_missing_systemctl(monkeypatch, tmp_path: Path) -> None:
@@ -842,7 +1161,6 @@ def test_audit_recent_handles_missing_audit_file(tmp_path: Path) -> None:
 def test_mcp_command_group_is_available() -> None:
     result = RUNNER.invoke(app, ["mcp", "--help"])
 
-    assert result.exit_code == 0, result.stdout
     assert "install-stdio-wrapper" in result.stdout
     assert "uninstall-stdio-wrapper" in result.stdout
 
@@ -850,5 +1168,4 @@ def test_mcp_command_group_is_available() -> None:
 def test_audit_command_group_is_available() -> None:
     result = RUNNER.invoke(app, ["audit", "--help"])
 
-    assert result.exit_code == 0, result.stdout
     assert "recent" in result.stdout

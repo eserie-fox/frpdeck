@@ -28,8 +28,8 @@ def create_mcp_server(instance_dir: str | Path | None = None) -> FastMCP:
     server = FastMCP(
         SERVER_NAME,
         instructions=(
-            "Thin local MCP wrapper over frpdeck structured proxy management and read-only instance status. "
-            "Use tools for proxy operations and resources for status snapshots."
+            "Thin local MCP wrapper over frpdeck structured proxy CRUD, import, and preview operations "
+            "plus read-only instance status resources. Use tools for proxy maintenance and resources for status snapshots."
         ),
         json_response=True,
     )

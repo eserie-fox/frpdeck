@@ -1,6 +1,6 @@
 """Server-side FRP config models."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from frpdeck.domain.client_config import AuthConfig, FrpLogConfig
 
@@ -19,3 +19,13 @@ class ServerCommonConfig(BaseModel):
     subdomain_host: str | None = None
     log: FrpLogConfig
     auth: AuthConfig
+
+    @field_validator("subdomain_host")
+    @classmethod
+    def _validate_subdomain_host(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("server.subdomain_host must not be empty")
+        return normalized

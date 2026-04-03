@@ -20,6 +20,15 @@ def can_write_file(path: Path) -> bool:
     return _has_write_execute(_nearest_existing_parent(path.parent))
 
 
+def can_read_path(path: Path) -> bool:
+    """Return whether the current user can read one existing file or directory path."""
+    if not path.exists():
+        return False
+    if path.is_dir():
+        return os.access(path, os.R_OK | os.X_OK)
+    return os.access(path, os.R_OK)
+
+
 def can_replace_directory(path: Path) -> bool:
     """Return whether the current user can remove and recreate one directory path."""
     if path.exists():

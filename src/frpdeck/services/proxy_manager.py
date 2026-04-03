@@ -10,21 +10,25 @@ from pydantic import ValidationError
 
 from frpdeck.domain.enums import ProxyType, Role
 from frpdeck.domain.errors import (
-    CommandExecutionError,
     ConfigLoadError,
     ProxyAlreadyExistsError,
-    ProxyApplyError,
     ProxyConflictError,
     ProxyNotFoundError,
     UnsupportedOperationError,
 )
-from frpdeck.domain.proxy import PROXY_ADAPTER, HttpProxyConfig, HttpsProxyConfig, ProxyConfig, ProxyFile, TcpProxyConfig, UdpProxyConfig
-from frpdeck.domain.proxy_management import ApplyReport, PreviewReport, ProxyMutationResult, ProxyUpdatePatch, ValidationReport
-from frpdeck.domain.state import ClientNodeConfig
+from frpdeck.domain.proxy import (
+    PROXY_ADAPTER,
+    HttpProxyConfig,
+    HttpsProxyConfig,
+    ProxyConfig,
+    ProxyFile,
+    TcpProxyConfig,
+    UdpProxyConfig,
+    validate_http_proxy_routes,
+)
+from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult, ProxyUpdatePatch, ValidationReport
 from frpdeck.services.audit import build_actor, new_event_id, read_text_snapshot, record_audit_event, revision_dir_path, write_proxy_revision, yaml_text, utc_timestamp
-from frpdeck.services.installer import sync_rendered_to_runtime
 from frpdeck.services.renderer import render_instance
-from frpdeck.services.runtime import run_command
 from frpdeck.storage.dump import dump_yaml_model
 from frpdeck.storage.file_lock import instance_lock
 from frpdeck.storage.load import load_node_config, load_proxy_file, load_yaml_file
@@ -68,6 +72,10 @@ class ProxyManager:
                 result=result,
             )
             return result
+
+    def import_proxy_file(self, instance_dir: Path, file_path: Path) -> ProxyMutationResult:
+        """Import one proxy definition from a YAML file."""
+        return self.add_proxy(instance_dir, load_proxy_spec_from_file(file_path.resolve()))
 
     def update_proxy(self, instance_dir: Path, name: str, patch_spec: ProxyUpdatePatch | dict[str, object]) -> ProxyMutationResult:
         with instance_lock(self._lock_path(instance_dir)):
@@ -200,8 +208,11 @@ class ProxyManager:
                     )
                 else:
                     used_remote_ports[proxy.type][proxy.remote_port] = proxy.name
-            if isinstance(proxy, (HttpProxyConfig, HttpsProxyConfig)) and not proxy.custom_domains and not proxy.subdomain:
-                errors.append(f"proxy {proxy.name} requires custom_domains or subdomain")
+            if isinstance(proxy, (HttpProxyConfig, HttpsProxyConfig)):
+                try:
+                    validate_http_proxy_routes(proxy.custom_domains, proxy.subdomain, scope=f"proxy {proxy.name}")
+                except ValueError as exc:
+                    errors.append(str(exc))
 
         return ValidationReport(ok=not errors, errors=errors, warnings=warnings)
 
@@ -235,66 +246,6 @@ class ProxyManager:
                 disabled_proxies=disabled,
                 rendered_proxy_files=[path.name for path in summary.rendered_proxy_paths],
             )
-
-    def apply_proxy_changes(self, instance_dir: Path, reload: bool = True) -> ApplyReport:
-        instance = instance_dir.resolve()
-        lock_path = instance / "state" / ".frpdeck.lock"
-        with instance_lock(lock_path):
-            proxy_file = self._load_proxy_file(instance)
-            before = self._apply_audit_state(proxy_file, reload=reload)
-            try:
-                node = load_node_config(instance)
-                if node.role != Role.CLIENT:
-                    raise UnsupportedOperationError("structured proxy apply is only supported for client instances")
-                assert isinstance(node, ClientNodeConfig)
-
-                validation = self.validate_proxy_set(instance)
-                if validation.errors:
-                    report = ApplyReport(
-                        ok=False,
-                        step="validate",
-                        errors=validation.errors,
-                        warnings=validation.warnings,
-                        reload_requested=reload,
-                    )
-                    self._attach_apply_audit(instance, before=before, report=report)
-                    return report
-
-                try:
-                    summary = render_instance(instance, node, proxy_file)
-                except Exception as exc:
-                    raise ProxyApplyError(f"failed during render: {exc}") from exc
-
-                try:
-                    sync_rendered_to_runtime(instance, node)
-                except Exception as exc:
-                    raise ProxyApplyError(f"failed during runtime sync: {exc}") from exc
-
-                reload_output = None
-                reloaded = False
-                if reload:
-                    try:
-                        reload_output = self._reload_client(instance, node)
-                        reloaded = True
-                    except (CommandExecutionError, ProxyApplyError) as exc:
-                        raise ProxyApplyError(f"failed during reload: {exc}") from exc
-
-                report = ApplyReport(
-                    ok=True,
-                    step="reload" if reload else "render",
-                    warnings=validation.warnings,
-                    rendered_proxy_files=[path.name for path in summary.rendered_proxy_paths],
-                    reload_requested=reload,
-                    reloaded=reloaded,
-                    reload_output=reload_output,
-                )
-                self._attach_apply_audit(instance, before=before, report=report)
-                return report
-            except Exception as exc:
-                warning = self._record_apply_failure(instance, before=before, reload=reload, exc=exc)
-                if warning:
-                    raise type(exc)(f"{exc}; {warning}") from exc
-                raise
 
     def _set_enabled(self, instance_dir: Path, name: str, enabled: bool) -> ProxyMutationResult:
         with instance_lock(self._lock_path(instance_dir)):
@@ -358,14 +309,6 @@ class ProxyManager:
             "proxy": proxy_payload,
         }
 
-    def _apply_audit_state(self, proxy_file: ProxyFile, *, reload: bool) -> dict[str, Any]:
-        enabled = [proxy.name for proxy in proxy_file.proxies if proxy.enabled]
-        return {
-            "proxy_count": len(proxy_file.proxies),
-            "enabled_proxies": enabled,
-            "reload_requested": reload,
-        }
-
     def _serialize_proxy(self, proxy: ProxyConfig) -> dict[str, Any]:
         return proxy.model_dump(mode="json", exclude_none=False)
 
@@ -388,23 +331,6 @@ class ProxyManager:
             if value is not None:
                 payload[key] = value
         return payload
-
-    def _audit_error_code(self, exc: Exception) -> str:
-        if isinstance(exc, ProxyNotFoundError):
-            return "proxy_not_found"
-        if isinstance(exc, ProxyAlreadyExistsError):
-            return "proxy_already_exists"
-        if isinstance(exc, ProxyConflictError):
-            return "proxy_conflict"
-        if isinstance(exc, ProxyApplyError):
-            return "apply_failed"
-        if isinstance(exc, UnsupportedOperationError):
-            return "unsupported_role"
-        if isinstance(exc, ConfigLoadError):
-            return "config_load_failed"
-        if isinstance(exc, CommandExecutionError):
-            return "command_execution_failed"
-        return "internal_error"
 
     def _attach_proxy_audit(
         self,
@@ -462,58 +388,6 @@ class ProxyManager:
         if warning is not None:
             result.warnings.append(warning)
 
-    def _attach_apply_audit(self, instance_dir: Path, *, before: dict[str, Any], report: ApplyReport) -> None:
-        warning = self._record_apply_audit(
-            instance_dir,
-            before=before,
-            after={
-                "step": report.step,
-                "rendered_files": list(report.rendered_proxy_files),
-                "reload_requested": report.reload_requested,
-                "reloaded": report.reloaded,
-            },
-            result=self._audit_result_payload(
-                ok=report.ok,
-                error_code=None if report.ok else ("validation_failed" if report.step == "validate" else "apply_failed"),
-                errors=report.errors,
-                warnings=report.warnings,
-                reload_requested=report.reload_requested,
-                reloaded=report.reloaded,
-                step=report.step,
-            ),
-        )
-        if warning is not None:
-            report.warnings.append(warning)
-
-    def _record_apply_failure(self, instance_dir: Path, *, before: dict[str, Any], reload: bool, exc: Exception) -> str | None:
-        return self._record_apply_audit(
-            instance_dir,
-            before=before,
-            after={"reload_requested": reload},
-            result=self._audit_result_payload(
-                ok=False,
-                error_code=self._audit_error_code(exc),
-                errors=[str(exc)],
-                warnings=[],
-                reload_requested=reload,
-            ),
-        )
-
-    def _record_apply_audit(self, instance_dir: Path, *, before: dict[str, Any], after: dict[str, Any], result: dict[str, Any]) -> str | None:
-        try:
-            record_audit_event(
-                instance_dir,
-                operation="proxy_apply",
-                instance_name=self._instance_name(instance_dir),
-                target={"reload_requested": before.get("reload_requested")},
-                before=before,
-                after=after,
-                result=result,
-            )
-        except Exception as exc:
-            return f"audit log append failed: {exc}"
-        return None
-
     def _find_proxy(self, proxy_file: ProxyFile, name: str) -> ProxyConfig:
         _, proxy = self._find_proxy_with_index(proxy_file, name)
         return proxy
@@ -556,19 +430,6 @@ class ProxyManager:
             if isinstance(value, str) and value.startswith("PLEASE_FILL_"):
                 errors.append(f"proxy {proxy.name} contains placeholder value: {value}")
         return errors
-
-    def _reload_client(self, instance_dir: Path, node: ClientNodeConfig) -> str:
-        if not node.client.web_server.addr or not node.client.web_server.port:
-            raise ProxyApplyError("client.web_server.addr and client.web_server.port are required for reload")
-        paths = node.resolved_paths(instance_dir)
-        binary_path = paths.binary_path(node.role)
-        config_path = paths.config_path(node.role)
-        if not binary_path.exists():
-            raise ProxyApplyError(f"frpc binary not found: {binary_path}")
-        if not config_path.exists():
-            raise ProxyApplyError(f"FRP runtime config not found: {config_path}")
-        result = run_command([str(binary_path), "reload", "-c", str(config_path)])
-        return result.stdout or "reload completed"
 
     def _instance_name(self, instance_dir: Path) -> str | None:
         try:

@@ -4,9 +4,36 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from frpdeck.domain.enums import BandwidthLimitMode, ProxyType
+
+
+def validate_http_proxy_routes(
+    custom_domains: list[str],
+    subdomain: str | None,
+    *,
+    scope: str,
+) -> tuple[list[str], str | None]:
+    """Normalize and validate HTTP/HTTPS route selectors."""
+
+    normalized_domains: list[str] = []
+    for domain in custom_domains:
+        normalized = domain.strip()
+        if not normalized:
+            raise ValueError(f"{scope}.custom_domains must not contain empty values")
+        normalized_domains.append(normalized)
+
+    normalized_subdomain = None
+    if subdomain is not None:
+        normalized_subdomain = subdomain.strip()
+        if not normalized_subdomain:
+            raise ValueError(f"{scope}.subdomain must not be empty")
+
+    if not normalized_domains and normalized_subdomain is None:
+        raise ValueError(f"{scope} requires custom_domains or subdomain")
+
+    return normalized_domains, normalized_subdomain
 
 
 class ProxyTransportConfig(BaseModel):
@@ -51,11 +78,29 @@ class HttpProxyConfig(ProxyBase):
     custom_domains: list[str] = Field(default_factory=list)
     subdomain: str | None = None
 
+    @model_validator(mode="after")
+    def _validate_routes(self) -> "HttpProxyConfig":
+        self.custom_domains, self.subdomain = validate_http_proxy_routes(
+            self.custom_domains,
+            self.subdomain,
+            scope=f"proxy {self.name}",
+        )
+        return self
+
 
 class HttpsProxyConfig(ProxyBase):
     type: Literal[ProxyType.HTTPS] = ProxyType.HTTPS
     custom_domains: list[str] = Field(default_factory=list)
     subdomain: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_routes(self) -> "HttpsProxyConfig":
+        self.custom_domains, self.subdomain = validate_http_proxy_routes(
+            self.custom_domains,
+            self.subdomain,
+            scope=f"proxy {self.name}",
+        )
+        return self
 
 
 ProxyConfig = Annotated[

@@ -57,7 +57,7 @@ def register(app: typer.Typer) -> None:
         install_if_missing: bool = typer.Option(True, "--install-if-missing/--no-install-if-missing"),
         sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
     ) -> None:
-        """Validate, render, install and restart an instance."""
+        """Validate, render, sync, install, and restart an instance."""
         instance_dir = instance.resolve()
         try:
             node = load_node_config(instance_dir)

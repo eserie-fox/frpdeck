@@ -19,7 +19,7 @@ def register(app: typer.Typer) -> None:
     def reload_command(
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     ) -> None:
-        """Reload a client instance via frpc reload."""
+        """Reload a client instance from runtime/config via frpc reload."""
         instance_dir = instance.resolve()
         node = load_node_config(instance_dir)
         with instance_logging_context(instance_dir, node=node):
@@ -35,7 +35,7 @@ def register(app: typer.Typer) -> None:
                 typer.echo(f"ERROR: frpc binary not found: {paths.binary_path(node.role)}; run apply or upgrade first")
                 raise typer.Exit(code=1)
             if not paths.config_path(node.role).exists():
-                typer.echo(f"ERROR: FRP runtime config not found: {paths.config_path(node.role)}; run render/apply first")
+                typer.echo(f"ERROR: FRP runtime config not found: {paths.config_path(node.role)}; run sync or apply first")
                 raise typer.Exit(code=1)
             try:
                 result = run_command([str(paths.binary_path(node.role)), "reload", "-c", str(paths.config_path(node.role))])
