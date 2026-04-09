@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 
 from frpdeck.domain.versioning import compare_versions, normalize_version
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.installer import read_current_version
 from frpdeck.services.release_checker import get_release
 from frpdeck.storage.load import load_node_config

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.mcp.serialization import dump_json, resource_error_payload, resolve_instance_dir
 from frpdeck.services.status_service import StatusService
 

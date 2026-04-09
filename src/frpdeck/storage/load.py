@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from frpdeck.config import validate_node_mapping, validate_proxy_file_mapping
+from frpdeck.config.instance import validate_node_mapping, validate_proxy_file_mapping
 from frpdeck.domain.errors import ConfigLoadError
 from frpdeck.domain.proxy import ProxyFile
 from frpdeck.domain.state import NodeConfig

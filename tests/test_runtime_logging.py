@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from frpdeck.domain.errors import ConfigLoadError
-from frpdeck.logging import (
+from frpdeck.logging.daily_symlink import (
     DailySymlinkFileHandler,
     ResolvedLoggingConfig,
     apply_logging_config,

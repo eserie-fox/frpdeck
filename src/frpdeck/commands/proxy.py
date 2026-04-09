@@ -27,7 +27,7 @@ from frpdeck.domain.errors import (
 )
 from frpdeck.domain.proxy import ProxyConfig
 from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult, ProxyUpdatePatch
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.proxy_manager import ProxyManager, analyze_proxy_write_root_requirements, load_proxy_spec_from_file
 
 

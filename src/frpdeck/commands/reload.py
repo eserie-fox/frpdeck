@@ -11,7 +11,7 @@ from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missin
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, PermissionOperationError
 from frpdeck.domain.state import ClientNodeConfig
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.installer import analyze_reload_root_requirements
 from frpdeck.services.runtime import run_command
 from frpdeck.storage.load import load_node_config

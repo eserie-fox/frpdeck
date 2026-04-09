@@ -7,7 +7,7 @@ import logging
 import typer
 
 from frpdeck.commands import apply, audit, check_update, doctor, init, mcp, proxy, reload, render, restart, status, sync, uninstall, upgrade, validate
-from frpdeck.logging import configure_default_logging
+from frpdeck.logging.daily_symlink import configure_default_logging
 from frpdeck.version import __version__
 
 

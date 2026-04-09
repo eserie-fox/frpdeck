@@ -12,6 +12,8 @@
 - `domain`: Pydantic models, enums, result types, and shared value objects.
 - `config`: package-shipped defaults loading, deep merge helpers, and merge-before-validate config assembly.
 
+Package directories are namespace boundaries, not API aggregation points. `__init__.py` files should stay thin and should not re-export leaf-module symbols.
+
 ## Dependency Direction
 
 Preferred dependency direction is:

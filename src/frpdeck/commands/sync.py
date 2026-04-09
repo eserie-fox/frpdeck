@@ -9,7 +9,7 @@ import typer
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
 from frpdeck.domain.errors import ConfigLoadError, FrpdeckError, PermissionOperationError
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.installer import analyze_sync_root_requirements, sync_rendered_to_runtime
 from frpdeck.storage.file_lock import instance_lock
 from frpdeck.storage.load import load_node_config

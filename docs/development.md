@@ -97,6 +97,8 @@ Then manually run the generated wrapper over SSH before configuring an MCP clien
 - With an instance context, instance logging initialization is fail-fast; do not silently skip broken logging config
 - FRP log levels are constrained to `trace`, `debug`, `info`, `warn`, and `error`
 - Keep logging config loading separate from logger mutation: load/resolve first, apply second
+- Treat package `__init__.py` files as namespace markers only; they must not re-export leaf-module symbols, lazy-load submodules, or provide package-level compatibility aliases
+- Import project code from leaf modules such as `frpdeck.config.instance`, `frpdeck.config.merge`, `frpdeck.logging.daily_symlink`, and `frpdeck.version` instead of package-level shortcuts
 - Uninstall performs `systemctl reset-failed <service>.service` as a best-effort cleanup step after `daemon-reload`; failures should surface only as warnings
 - `apply` and `upgrade` may show simple download progress when fetching release archives; offline binary replacement should keep working through `--archive` or `binary.local_archive`
 

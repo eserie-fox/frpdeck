@@ -1,7 +1,7 @@
 from pathlib import Path
 import tomllib
 
-from frpdeck.config import (
+from frpdeck.config.instance import (
     load_node_defaults,
     load_proxy_file_defaults,
     load_scaffold_instance_layout,

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from frpdeck.config import (
-    config_deep_merge,
+from frpdeck.config.instance import (
     load_node_defaults,
     load_proxy_file_defaults,
     load_scaffold_instance_layout,
@@ -13,6 +12,7 @@ from frpdeck.config import (
     load_scaffold_proxy_file_overrides,
     load_scaffold_token_example,
 )
+from frpdeck.config.merge import config_deep_merge
 from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.domain.enums import Role
 from frpdeck.domain.proxy import ProxyFile

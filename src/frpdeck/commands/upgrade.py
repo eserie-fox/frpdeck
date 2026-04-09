@@ -10,7 +10,7 @@ from frpdeck.commands._download_progress import CliDownloadProgressReporter
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
 from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, ConfigValidationError, DownloadError, PermissionOperationError
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.installer import analyze_upgrade_root_requirements, install_from_archive, install_from_release
 from frpdeck.services.release_checker import get_release
 from frpdeck.services.systemd_manager import restart_service

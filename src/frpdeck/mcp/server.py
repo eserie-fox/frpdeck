@@ -10,7 +10,7 @@ from typing import Sequence
 from mcp.server.fastmcp import FastMCP
 
 from frpdeck.facade.proxy_facade import ProxyFacade
-from frpdeck.logging import configure_default_logging, configure_instance_logging
+from frpdeck.logging.daily_symlink import configure_default_logging, configure_instance_logging
 from frpdeck.mcp.resources import register_resources
 from frpdeck.mcp.serialization import resolve_instance_dir
 from frpdeck.mcp.tools import register_tools
