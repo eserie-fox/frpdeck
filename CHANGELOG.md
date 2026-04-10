@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 1.1.3
+
+- Added consistent full-command `--sudo` re-exec support for mutating workflows, with clearer fail-fast permission errors and retry hints.
+- Tightened privilege prechecks and filesystem/config error handling across init, render, sync, restart, upgrade, uninstall, structured proxy mutations, and MCP wrapper operations, with expanded CLI and privilege test coverage.
+- Switched package version metadata to load dynamically from `frpdeck.version.__version__` and aligned the release-process documentation around that single version source.
+- Removed package-level re-exports and lazy exports in favor of leaf-module imports, and fixed instance log-path resolution so `frpdeck.log` stays pinned to the stable symlink name instead of breaking MCP-bound startup with ever-growing daily log filenames.
+
 ## 1.1.2
 
 - Changed server operational defaults and scaffold output so vhost HTTP/HTTPS ports and `subdomain_host` are unset by default; new server instances no longer implicitly bind `80` or `443`.
