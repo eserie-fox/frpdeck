@@ -8,7 +8,7 @@ import typer
 
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import ConfigValidationError
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.verifier import validate_instance
 from frpdeck.storage.load import load_node_config, load_proxy_file
 

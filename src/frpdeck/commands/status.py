@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 
 from frpdeck.commands.output import emit_json_envelope
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.status_service import StatusService
 
 

@@ -4,7 +4,7 @@ This project keeps release preparation intentionally lightweight.
 
 ## Checklist
 
-1. Update the version in `pyproject.toml` and `src/frpdeck/version.py`.
+1. Update the version in `src/frpdeck/version.py`.
 2. Add the release entry at the top of `CHANGELOG.md`.
 3. Add a matching release note under `docs/release-notes/`.
 4. Run the test suite.

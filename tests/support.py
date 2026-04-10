@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from frpdeck.config import config_deep_merge, load_node_defaults, validate_node_mapping
+from frpdeck.config.instance import load_node_defaults, validate_node_mapping
+from frpdeck.config.merge import config_deep_merge
 from frpdeck.domain.enums import Role
 from frpdeck.domain.install import BinaryConfig
 

@@ -18,7 +18,14 @@ from frpdeck.domain.versioning import normalize_version
 from frpdeck.storage.dump import dump_json_data
 from frpdeck.services.backup import backup_file_if_exists
 from frpdeck.services.downloader import DownloadProgressCallback, download_file
-from frpdeck.services.privilege import can_read_path, can_replace_directory, can_write_directory, can_write_file, root_owned_hint
+from frpdeck.services.privilege import (
+    can_execute_file,
+    can_read_path,
+    can_replace_directory,
+    can_write_directory,
+    can_write_file,
+    root_owned_hint,
+)
 from frpdeck.services.release_checker import ReleaseInfo, get_release
 
 
@@ -167,6 +174,10 @@ def analyze_sync_root_requirements(instance_dir: Path, node: NodeBase) -> list[s
     instance = instance_dir.resolve()
     paths = node.resolved_paths(instance)
     reasons: list[str] = []
+    lock_path = instance / "state" / ".frpdeck.lock"
+
+    if not can_write_file(lock_path):
+        reasons.append(f"instance lock path is not writable by current user: {lock_path}{root_owned_hint(lock_path)}")
 
     runtime_config_path = paths.config_path(node.role)
     if not can_write_file(runtime_config_path):
@@ -197,6 +208,80 @@ def analyze_sync_root_requirements(instance_dir: Path, node: NodeBase) -> list[s
             reasons.append(
                 f"rendered proxy include directory is not readable by current user: {rendered_proxies}{root_owned_hint(rendered_proxies)}"
             )
+
+    return reasons
+
+
+def analyze_reload_root_requirements(instance_dir: Path, node: NodeBase) -> list[str]:
+    """Return the reasons why one reload invocation requires elevated privileges."""
+    instance = instance_dir.resolve()
+    paths = node.resolved_paths(instance)
+    reasons: list[str] = []
+    binary_path = paths.binary_path(node.role)
+    config_path = paths.config_path(node.role)
+
+    if binary_path.exists() and not can_execute_file(binary_path):
+        reasons.append(f"frpc binary is not executable by current user: {binary_path}{root_owned_hint(binary_path)}")
+
+    if config_path.exists() and not can_read_path(config_path):
+        reasons.append(f"runtime config path is not readable by current user: {config_path}{root_owned_hint(config_path)}")
+
+    if node.role == Role.CLIENT:
+        runtime_proxies_dir = paths.proxies_dir()
+        if runtime_proxies_dir.exists() and not can_read_path(runtime_proxies_dir):
+            reasons.append(
+                f"runtime proxy include path is not readable by current user: {runtime_proxies_dir}{root_owned_hint(runtime_proxies_dir)}"
+            )
+
+    return reasons
+
+
+def analyze_upgrade_root_requirements(
+    instance_dir: Path,
+    node: NodeBase,
+    *,
+    archive: Path | None = None,
+    restart_after: bool = True,
+) -> list[str]:
+    """Return the reasons why one upgrade invocation requires elevated privileges."""
+    instance = instance_dir.resolve()
+    paths = node.resolved_paths(instance)
+    reasons: list[str] = []
+    lock_path = instance / "state" / ".frpdeck.lock"
+    state_root = instance / "state"
+    backup_root = instance / "backups"
+
+    if not can_write_file(lock_path):
+        reasons.append(f"instance lock path is not writable by current user: {lock_path}{root_owned_hint(lock_path)}")
+
+    if not can_write_directory(paths.install_dir):
+        reasons.append(f"install path is not writable by current user: {paths.install_dir}{root_owned_hint(paths.install_dir)}")
+
+    if not can_write_directory(state_root):
+        reasons.append(f"state path is not writable by current user: {state_root}{root_owned_hint(state_root)}")
+
+    current_version_path = state_root / "current_version.txt"
+    if current_version_path.exists() and not can_write_file(current_version_path):
+        reasons.append(
+            f"current version state file is not writable by current user: {current_version_path}{root_owned_hint(current_version_path)}"
+        )
+
+    if paths.binary_path(node.role).exists() and not can_write_directory(backup_root):
+        reasons.append(f"backup path is not writable by current user: {backup_root}{root_owned_hint(backup_root)}")
+
+    if archive is not None and archive.exists() and not can_read_path(archive):
+        reasons.append(f"archive is not readable by current user: {archive}{root_owned_hint(archive)}")
+    elif archive is None and node.binary.local_archive is not None:
+        resolved_archive = (
+            node.binary.local_archive
+            if node.binary.local_archive.is_absolute()
+            else (instance / node.binary.local_archive).resolve()
+        )
+        if resolved_archive.exists() and not can_read_path(resolved_archive):
+            reasons.append(f"archive is not readable by current user: {resolved_archive}{root_owned_hint(resolved_archive)}")
+
+    if restart_after:
+        reasons.append("will manage system service via systemctl")
 
     return reasons
 

@@ -60,6 +60,8 @@ Key design notes now live under `docs/`:
 - `doctor` checks Linux/systemd availability, instance files, and basic write permissions.
 - `python -m frpdeck.mcp.server` starts a local stdio MCP server that exposes proxy-management tools and read-only status resources.
 
+All mutating commands support `--sudo`. When a non-root user passes `--sudo`, `frpdeck` re-execs the full command via sudo before loading instance config or touching managed files. Without `--sudo`, mutating commands fail early with a retry hint when required paths are not readable or writable by the current user.
+
 ## Current scope
 
 `frpdeck` is a focused operations tool, not a full FRP control platform. It currently centers on structured instance management, proxy maintenance, local apply workflows, auditing, and MCP-assisted maintenance. HTTP control planes, remote auth layers, and web dashboards are intentionally out of scope for now.
@@ -110,19 +112,19 @@ frpdeck render --instance ./my-client
 Mirror the rendered snapshot into runtime config without restarting anything:
 
 ```bash
-sudo frpdeck sync --instance ./my-client
+frpdeck sync --instance ./my-client --sudo
 ```
 
 Apply an instance to the configured runtime paths:
 
 ```bash
-sudo frpdeck apply --instance ./my-client
+frpdeck apply --instance ./my-client --sudo
 ```
 
 For offline install or replacement from a local FRP archive:
 
 ```bash
-sudo frpdeck apply --instance ./my-client --archive /path/to/frp_0.65.0_linux_amd64.tar.gz
+frpdeck apply --instance ./my-client --archive /path/to/frp_0.65.0_linux_amd64.tar.gz --sudo
 ```
 
 Inspect runtime state:
@@ -141,6 +143,8 @@ Apply emits stage-by-stage progress in text mode so it is clear when validation,
 - `reload` asks `frpc` to reload using the current `runtime/config`. If runtime config is missing, run `sync` or `apply` first.
 - `apply` is the full operational path: validate, render, sync, install/upgrade the managed binary if needed, install the systemd unit, and restart the service.
 - `proxy preview` is a temporary client-side preview of proxy include output. It does not modify `rendered/`. Top-level `render` writes the full instance snapshot into `rendered/`.
+
+Write commands accept `--sudo` and re-exec the entire command via sudo when needed. This applies to instance-scaffold, render/sync/apply/reload/restart/upgrade/uninstall workflows, structured proxy mutations, and MCP wrapper install or uninstall. You can still run `sudo frpdeck ...` manually, but `frpdeck ... --sudo` is the preferred retry path because the command itself can fail early before doing partial work.
 
 Uninstall installed artifacts while keeping source configuration:
 
@@ -163,7 +167,7 @@ frpdeck uninstall --instance ./my-client --purge
 3. Create `secrets/token.txt` with the real token.
 4. Run `frpdeck validate --instance ./your-client`.
 5. Run `frpdeck render --instance ./your-client`.
-6. Run `sudo frpdeck apply --instance ./your-client`.
+6. Run `frpdeck apply --instance ./your-client --sudo`.
 7. Run `frpdeck status --instance ./your-client`.
 
 For offline binary management, `apply --archive`, `upgrade --archive`, and `binary.local_archive` are all supported.
@@ -176,7 +180,7 @@ For offline binary management, `apply --archive`, `upgrade --archive`, and `bina
 4. If you want subdomain-based routing, also set `server.subdomain_host`.
 5. Run `frpdeck validate --instance ./your-server`.
 6. Run `frpdeck render --instance ./your-server`.
-7. Run `sudo frpdeck apply --instance ./your-server`.
+7. Run `frpdeck apply --instance ./your-server --sudo`.
 
 ## Server vhost modes
 

@@ -19,7 +19,7 @@ from frpdeck.domain.errors import (
 from frpdeck.domain.facade_models import FacadeResult
 from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyConfig, TcpProxyConfig, UdpProxyConfig
 from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.proxy_manager import ProxyManager
 
 

@@ -11,6 +11,8 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
+from frpdeck.domain.errors import PermissionOperationError
+
 
 def dump_yaml_model(model: BaseModel, path: Path) -> None:
     """Write a pydantic model to YAML."""
@@ -32,13 +34,19 @@ def dump_json_data(data: dict[str, Any], path: Path) -> None:
 
 def _atomic_write_text(path: Path, content: str) -> None:
     """Write text atomically via a temporary file and os.replace."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    temp_path = Path(temp_name)
+    temp_path: Path | None = None
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        temp_path = Path(temp_name)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
         os.replace(temp_path, path)
+    except PermissionError as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise PermissionOperationError(f"cannot write {path}; use sudo or adjust configured paths") from exc
     except Exception:
-        temp_path.unlink(missing_ok=True)
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
         raise

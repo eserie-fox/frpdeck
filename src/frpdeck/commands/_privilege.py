@@ -1,13 +1,13 @@
-"""Privilege checks and sudo re-exec helpers for mutating commands."""
+"""Privilege fail-fast and sudo re-exec helpers for mutating commands."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-import shlex
-import sys
 
+from frpdeck.commands._invocation import CommandInvocation
 from frpdeck.domain.errors import PermissionOperationError
+from frpdeck.services.privilege import can_read_path, root_owned_hint
 from frpdeck.services.runtime import command_exists
 
 
@@ -19,47 +19,65 @@ def current_user_is_root() -> bool:
     return geteuid() == 0
 
 
-def ensure_root_privileges(
+def maybe_reexec_with_sudo(
     *,
     operation: str,
-    reasons: list[str],
     sudo_requested: bool,
-    command_args: list[str],
+    invocation: CommandInvocation,
+    subject: str = "this instance",
 ) -> bool:
-    """Fail fast or re-exec through sudo when root is required."""
-    if current_user_is_root() or not reasons:
+    """Immediately re-exec the full command through sudo when requested."""
+    if current_user_is_root():
         return False
 
     if not sudo_requested:
-        raise PermissionOperationError(_format_privilege_message(operation, reasons, command_args))
+        return False
 
     if not command_exists("sudo"):
         raise PermissionOperationError(
             _format_privilege_message(
                 operation,
-                reasons,
-                command_args,
+                [],
+                invocation,
+                subject=subject,
                 sudo_requested=True,
                 sudo_available=False,
             )
         )
-
-    _exec_with_sudo(_sudo_exec_args(command_args))
+    _exec_with_sudo(invocation.sudo_exec_args())
     return True
+
+
+def raise_for_missing_privileges(
+    *,
+    operation: str,
+    reasons: list[str],
+    invocation: CommandInvocation,
+    subject: str = "this instance",
+) -> None:
+    """Raise one consistent fail-fast privilege error when reasons are present."""
+    if current_user_is_root() or not reasons:
+        return
+
+    raise PermissionOperationError(_format_privilege_message(operation, reasons, invocation, subject=subject))
 
 
 def _format_privilege_message(
     operation: str,
     reasons: list[str],
-    command_args: list[str],
+    invocation: CommandInvocation,
     *,
+    subject: str = "this instance",
     sudo_requested: bool = False,
     sudo_available: bool = True,
 ) -> str:
-    manual_command = _display_command(command_args)
-    retry_command = _display_command([*command_args, "--sudo"])
-    lines = [f"{operation} requires elevated privileges for this instance:"]
-    lines.extend(f"- {reason}" for reason in reasons)
+    manual_command = invocation.display()
+    retry_command = invocation.with_sudo_flag().display()
+    lines = [f"{operation} requires elevated privileges for {subject}:"]
+    if not reasons:
+        lines[0] = lines[0][:-1] + "."
+    else:
+        lines.extend(f"- {reason}" for reason in reasons)
     if sudo_requested and not sudo_available:
         lines.append("`--sudo` was requested, but `sudo` is not available in PATH.")
         lines.append(f"Run this command as root instead: {manual_command}")
@@ -69,17 +87,12 @@ def _format_privilege_message(
     return "\n".join(lines)
 
 
-def _display_command(command_args: list[str]) -> str:
-    return shlex.join(["frpdeck", *command_args])
-
-
-def _sudo_exec_args(command_args: list[str]) -> list[str]:
-    cli_path = Path(sys.executable).resolve().with_name("frpdeck")
-    if cli_path.exists() and os.access(cli_path, os.X_OK):
-        return ["sudo", str(cli_path), *command_args, "--sudo"]
-    return ["sudo", sys.executable, "-m", "frpdeck", *command_args, "--sudo"]
-
-
 def _exec_with_sudo(args: list[str]) -> None:
     os.execvp(args[0], args)
 
+
+def unreadable_path_reason(path: Path, *, label: str) -> str | None:
+    """Return one standard fail-early reason for an unreadable existing path."""
+    if not path.exists() or can_read_path(path):
+        return None
+    return f"{label} is not readable by current user: {path}{root_owned_hint(path)}"

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from frpdeck.config import validate_node_mapping
+from frpdeck.config.instance import validate_node_mapping
 from frpdeck.domain.enums import FrpLogLevel, FrpdeckLogLevel, Role
 from frpdeck.domain.client_config import AuthConfig
 from frpdeck.domain.proxy import HttpProxyConfig, PROXY_ADAPTER, TcpProxyConfig

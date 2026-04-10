@@ -6,7 +6,7 @@ from pathlib import Path
 
 import typer
 
-from frpdeck.logging import instance_logging_context
+from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.doctor import run_doctor
 from frpdeck.storage.load import load_node_config
 

@@ -68,6 +68,23 @@ def _copy_fixture_instance(name: str, destination: Path) -> Path:
     return instance_dir
 
 
+def _patch_privilege_noop(monkeypatch, module: str) -> None:
+    monkeypatch.setattr(f"{module}.maybe_reexec_with_sudo", lambda **kwargs: False)
+    monkeypatch.setattr(f"{module}.raise_for_missing_privileges", lambda **kwargs: None)
+
+
+def _patch_privilege_reexec(monkeypatch, module: str) -> None:
+    monkeypatch.setattr(f"{module}.maybe_reexec_with_sudo", lambda **kwargs: True)
+
+
+def _patch_privilege_fail(monkeypatch, module: str, message: str) -> None:
+    monkeypatch.setattr(f"{module}.maybe_reexec_with_sudo", lambda **kwargs: False)
+    monkeypatch.setattr(
+        f"{module}.raise_for_missing_privileges",
+        lambda **kwargs: (_ for _ in ()).throw(PermissionOperationError(message)),
+    )
+
+
 def test_init_client_creates_base_files(tmp_path: Path) -> None:
     result = RUNNER.invoke(app, ["init", "client", "demo-node", "--directory", str(tmp_path)])
 
@@ -221,7 +238,7 @@ def test_init_without_required_args_still_reports_missing_argument() -> None:
 
 def test_apply_shows_human_readable_step_output(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
-    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: False)
+    _patch_privilege_noop(monkeypatch, "frpdeck.commands.apply")
 
     def fake_apply_instance(self, instance_dir: Path, *, node=None, archive=None, install_if_missing=True, reporter=None):
         assert reporter is not None
@@ -263,7 +280,11 @@ def test_apply_fails_fast_with_root_reasons_before_side_effects(monkeypatch, tmp
     _write_client_instance(tmp_path)
     calls: list[str] = []
 
-    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: (_ for _ in ()).throw(PermissionOperationError("apply requires elevated privileges for this instance:\n- will manage system service via systemctl\nRetry with: frpdeck apply --instance x --sudo\nOr run manually: sudo frpdeck apply --instance x")))
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.apply",
+        "apply requires elevated privileges for this instance:\n- will manage system service via systemctl\nRetry with: frpdeck apply --instance x --sudo\nOr run manually: sudo frpdeck apply --instance x",
+    )
     monkeypatch.setattr("frpdeck.commands.apply.instance_lock", lambda *args, **kwargs: calls.append("lock"))
     monkeypatch.setattr("frpdeck.commands.apply.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
     monkeypatch.setattr("frpdeck.commands.apply.ApplyService.apply_instance", lambda *args, **kwargs: calls.append("apply"))
@@ -281,7 +302,7 @@ def test_apply_sudo_reexec_happens_before_original_flow(monkeypatch, tmp_path: P
     _write_client_instance(tmp_path)
     calls: list[str] = []
 
-    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: True)
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.apply")
     monkeypatch.setattr("frpdeck.commands.apply.instance_lock", lambda *args, **kwargs: calls.append("lock"))
     monkeypatch.setattr("frpdeck.commands.apply.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
     monkeypatch.setattr("frpdeck.commands.apply.ApplyService.apply_instance", lambda *args, **kwargs: calls.append("apply"))
@@ -296,26 +317,30 @@ def test_apply_running_as_root_does_not_reexec_sudo(monkeypatch, tmp_path: Path)
     _write_client_instance(tmp_path)
     calls: list[str] = []
 
-    def fake_ensure_root_privileges(**kwargs) -> bool:
-        calls.append("precheck")
+    def fake_maybe_reexec_with_sudo(**kwargs) -> bool:
+        calls.append("reexec")
         return False
+
+    def fake_raise_for_missing_privileges(**kwargs) -> None:
+        calls.append("raise")
 
     def fake_apply_instance(self, instance_dir: Path, *, node=None, archive=None, install_if_missing=True, reporter=None):
         calls.append("apply")
         return ApplyExecutionResult(ok=True, service_name="client-demo-frpc", config_path=instance_dir / "runtime" / "config" / "frpc.toml")
 
-    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", fake_ensure_root_privileges)
+    monkeypatch.setattr("frpdeck.commands.apply.maybe_reexec_with_sudo", fake_maybe_reexec_with_sudo)
+    monkeypatch.setattr("frpdeck.commands.apply.raise_for_missing_privileges", fake_raise_for_missing_privileges)
     monkeypatch.setattr("frpdeck.commands.apply.ApplyService.apply_instance", fake_apply_instance)
 
     result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path), "--sudo", "--no-install-if-missing"])
 
     assert result.exit_code == 0, result.stdout
-    assert calls == ["precheck", "apply"]
+    assert calls == ["reexec", "raise", "raise", "apply"]
 
 
 def test_apply_archive_option_uses_explicit_archive(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
-    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: False)
+    _patch_privilege_noop(monkeypatch, "frpdeck.commands.apply")
     archive = tmp_path / "frp_0.65.0_linux_amd64.tar.gz"
     archive.write_text("placeholder", encoding="utf-8")
     captured: dict[str, object] = {}
@@ -343,7 +368,7 @@ def test_apply_archive_option_uses_explicit_archive(monkeypatch, tmp_path: Path)
 
 def test_apply_shows_download_progress_during_release_install(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
-    monkeypatch.setattr("frpdeck.commands.apply.ensure_root_privileges", lambda **kwargs: False)
+    _patch_privilege_noop(monkeypatch, "frpdeck.commands.apply")
 
     def fake_apply_instance(self, instance_dir: Path, *, node=None, archive=None, install_if_missing=True, reporter=None):
         assert reporter is not None
@@ -626,7 +651,11 @@ def test_uninstall_fails_fast_with_root_reasons_before_side_effects(monkeypatch,
     calls: list[str] = []
 
     monkeypatch.setattr("frpdeck.commands.uninstall.load_node_config", lambda instance_dir: build_client_node())
-    monkeypatch.setattr("frpdeck.commands.uninstall.ensure_root_privileges", lambda **kwargs: (_ for _ in ()).throw(PermissionOperationError("uninstall requires elevated privileges for this instance:\n- will manage system service via systemctl\nRetry with: frpdeck uninstall --instance x --sudo\nOr run manually: sudo frpdeck uninstall --instance x")))
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.uninstall",
+        "uninstall requires elevated privileges for this instance:\n- will manage system service via systemctl\nRetry with: frpdeck uninstall --instance x --sudo\nOr run manually: sudo frpdeck uninstall --instance x",
+    )
     monkeypatch.setattr("frpdeck.commands.uninstall.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
     monkeypatch.setattr("frpdeck.commands.uninstall.uninstall_instance", lambda *args, **kwargs: calls.append("uninstall"))
 
@@ -644,7 +673,7 @@ def test_uninstall_sudo_reexec_happens_before_original_flow(monkeypatch, tmp_pat
     calls: list[str] = []
 
     monkeypatch.setattr("frpdeck.commands.uninstall.load_node_config", lambda instance_dir: build_client_node())
-    monkeypatch.setattr("frpdeck.commands.uninstall.ensure_root_privileges", lambda **kwargs: True)
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.uninstall")
     monkeypatch.setattr("frpdeck.commands.uninstall.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
     monkeypatch.setattr("frpdeck.commands.uninstall.uninstall_instance", lambda *args, **kwargs: calls.append("uninstall"))
 
@@ -809,7 +838,7 @@ def test_validate_does_not_write_runtime_config(tmp_path: Path) -> None:
 def test_sync_command_updates_runtime_config(tmp_path: Path, monkeypatch) -> None:
     _write_client_instance(tmp_path, node_overrides={"client": {"server_addr": "server.example.com"}})
     _write_rendered_client_snapshot(tmp_path, proxy_names=["ssh", "web"])
-    monkeypatch.setattr("frpdeck.commands.sync.ensure_root_privileges", lambda **kwargs: False)
+    _patch_privilege_noop(monkeypatch, "frpdeck.commands.sync")
 
     result = RUNNER.invoke(app, ["sync", "--instance", str(tmp_path)])
 
@@ -823,13 +852,10 @@ def test_sync_command_fails_fast_with_root_reasons_before_side_effects(monkeypat
     _write_client_instance(tmp_path)
     calls: list[str] = []
 
-    monkeypatch.setattr(
-        "frpdeck.commands.sync.ensure_root_privileges",
-        lambda **kwargs: (_ for _ in ()).throw(
-            PermissionOperationError(
-                "sync requires elevated privileges for this instance:\n- runtime config path is not writable\nRetry with: frpdeck sync --instance x --sudo"
-            )
-        ),
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.sync",
+        "sync requires elevated privileges for this instance:\n- runtime config path is not writable\nRetry with: frpdeck sync --instance x --sudo",
     )
     monkeypatch.setattr("frpdeck.commands.sync.instance_lock", lambda *args, **kwargs: calls.append("lock"))
     monkeypatch.setattr("frpdeck.commands.sync.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
@@ -847,7 +873,7 @@ def test_sync_command_sudo_reexec_happens_before_original_flow(monkeypatch, tmp_
     _write_client_instance(tmp_path)
     calls: list[str] = []
 
-    monkeypatch.setattr("frpdeck.commands.sync.ensure_root_privileges", lambda **kwargs: True)
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.sync")
     monkeypatch.setattr("frpdeck.commands.sync.instance_lock", lambda *args, **kwargs: calls.append("lock"))
     monkeypatch.setattr("frpdeck.commands.sync.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
     monkeypatch.setattr("frpdeck.commands.sync.sync_rendered_to_runtime", lambda *args, **kwargs: calls.append("sync"))
@@ -871,6 +897,7 @@ def test_reload_missing_runtime_config_mentions_sync_or_apply(tmp_path: Path) ->
     binary_path = tmp_path / "runtime" / "bin" / "frpc"
     binary_path.parent.mkdir(parents=True, exist_ok=True)
     binary_path.write_text("binary", encoding="utf-8")
+    binary_path.chmod(0o755)
 
     result = RUNNER.invoke(app, ["reload", "--instance", str(tmp_path)])
 
@@ -1108,6 +1135,287 @@ def test_mcp_uninstall_stdio_wrapper_defaults_to_current_directory(monkeypatch, 
 
     assert result.exit_code == 0, result.stdout
     assert not (tmp_path / WRAPPER_FILENAME).exists()
+
+
+def test_restart_fails_fast_with_root_reasons_before_side_effects(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.restart",
+        "restart requires elevated privileges for this instance:\n- will manage system service via systemctl\nRetry with: frpdeck restart --instance x --sudo\nOr run manually: sudo frpdeck restart --instance x",
+    )
+    monkeypatch.setattr("frpdeck.commands.restart.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.restart.restart_service", lambda *args, **kwargs: calls.append("restart"))
+
+    result = RUNNER.invoke(app, ["restart", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_restart_sudo_reexec_happens_before_original_flow(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.restart")
+    monkeypatch.setattr("frpdeck.commands.restart.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.restart.restart_service", lambda *args, **kwargs: calls.append("restart"))
+
+    result = RUNNER.invoke(app, ["restart", "--instance", str(tmp_path), "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_reload_fails_fast_with_root_reasons_before_command_execution(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(
+        tmp_path,
+        node_overrides={
+            "client": {
+                "server_addr": "server.example.com",
+                "web_server": {"addr": "127.0.0.1", "port": 7400},
+            }
+        },
+    )
+    calls: list[str] = []
+
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.reload",
+        "reload requires elevated privileges for this instance:\n- frpc binary is not executable by current user: /tmp/x\nRetry with: frpdeck reload --instance x --sudo\nOr run manually: sudo frpdeck reload --instance x",
+    )
+    monkeypatch.setattr("frpdeck.commands.reload.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.reload.run_command", lambda *args, **kwargs: calls.append("reload"))
+
+    result = RUNNER.invoke(app, ["reload", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_reload_sudo_reexec_happens_before_original_flow(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.reload")
+    monkeypatch.setattr("frpdeck.commands.reload.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.reload.run_command", lambda *args, **kwargs: calls.append("reload"))
+
+    result = RUNNER.invoke(app, ["reload", "--instance", str(tmp_path), "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_upgrade_fails_fast_with_root_reasons_before_side_effects(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.upgrade",
+        "upgrade requires elevated privileges for this instance:\n- install path is not writable by current user: /tmp/x\nRetry with: frpdeck upgrade --instance x --sudo\nOr run manually: sudo frpdeck upgrade --instance x",
+    )
+    monkeypatch.setattr("frpdeck.commands.upgrade.instance_lock", lambda *args, **kwargs: calls.append("lock"))
+    monkeypatch.setattr("frpdeck.commands.upgrade.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.upgrade.install_from_archive", lambda *args, **kwargs: calls.append("archive"))
+    monkeypatch.setattr("frpdeck.commands.upgrade.install_from_release", lambda *args, **kwargs: calls.append("release"))
+
+    result = RUNNER.invoke(app, ["upgrade", "--instance", str(tmp_path), "--no-restart"])
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_upgrade_sudo_reexec_happens_before_original_flow(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.upgrade")
+    monkeypatch.setattr("frpdeck.commands.upgrade.instance_lock", lambda *args, **kwargs: calls.append("lock"))
+    monkeypatch.setattr("frpdeck.commands.upgrade.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.upgrade.install_from_archive", lambda *args, **kwargs: calls.append("archive"))
+    monkeypatch.setattr("frpdeck.commands.upgrade.install_from_release", lambda *args, **kwargs: calls.append("release"))
+
+    result = RUNNER.invoke(app, ["upgrade", "--instance", str(tmp_path), "--sudo", "--no-restart"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_init_fails_fast_with_root_reasons_before_scaffold(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.init",
+        "init requires elevated privileges for the target directory:\n- target instance directory is not creatable by current user: /tmp/x\nRetry with: frpdeck init client demo --directory /tmp/x --sudo\nOr run manually: sudo frpdeck init client demo --directory /tmp/x",
+    )
+    monkeypatch.setattr("frpdeck.commands.init.scaffold_instance", lambda *args, **kwargs: calls.append("scaffold"))
+
+    result = RUNNER.invoke(app, ["init", "client", "demo", "--directory", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_init_sudo_reexec_happens_before_scaffold(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.init")
+    monkeypatch.setattr("frpdeck.commands.init.scaffold_instance", lambda *args, **kwargs: calls.append("scaffold"))
+
+    result = RUNNER.invoke(app, ["init", "client", "demo", "--directory", str(tmp_path), "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_render_fails_fast_with_root_reasons_before_rendering(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.render",
+        "render requires elevated privileges for this instance:\n- rendered output path is not writable by current user: /tmp/x\nRetry with: frpdeck render --instance x --sudo\nOr run manually: sudo frpdeck render --instance x",
+    )
+    monkeypatch.setattr("frpdeck.commands.render.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.render.render_instance", lambda *args, **kwargs: calls.append("render"))
+
+    result = RUNNER.invoke(app, ["render", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_render_sudo_reexec_happens_before_rendering(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.render")
+    monkeypatch.setattr("frpdeck.commands.render.instance_logging_context", lambda *args, **kwargs: calls.append("logging"))
+    monkeypatch.setattr("frpdeck.commands.render.render_instance", lambda *args, **kwargs: calls.append("render"))
+
+    result = RUNNER.invoke(app, ["render", "--instance", str(tmp_path), "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_proxy_add_tcp_fails_fast_with_root_reasons_before_mutation(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    calls: list[str] = []
+
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.proxy",
+        "proxy add tcp requires elevated privileges for this instance:\n- proxy config is not writable by current user: /tmp/x\nRetry with: frpdeck proxy add tcp --instance x --sudo\nOr run manually: sudo frpdeck proxy add tcp --instance x",
+    )
+    monkeypatch.setattr("frpdeck.commands.proxy.MANAGER.add_proxy", lambda *args, **kwargs: calls.append("add"))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "add",
+            "tcp",
+            "--instance",
+            str(tmp_path),
+            "--name",
+            "ssh-alt",
+            "--local-port",
+            "2222",
+            "--remote-port",
+            "7000",
+        ],
+    )
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_proxy_add_tcp_sudo_reexec_happens_before_mutation(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.proxy")
+    monkeypatch.setattr("frpdeck.commands.proxy.MANAGER.add_proxy", lambda *args, **kwargs: calls.append("add"))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "proxy",
+            "add",
+            "tcp",
+            "--instance",
+            str(tmp_path),
+            "--name",
+            "ssh-alt",
+            "--local-port",
+            "2222",
+            "--remote-port",
+            "7000",
+            "--sudo",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_mcp_install_stdio_wrapper_fails_fast_with_root_reasons_before_mutation(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    _patch_privilege_fail(
+        monkeypatch,
+        "frpdeck.commands.mcp",
+        "mcp install-stdio-wrapper requires elevated privileges for this instance:\n- wrapper path is not writable by current user: /tmp/x\nRetry with: frpdeck mcp install-stdio-wrapper --instance x --sudo\nOr run manually: sudo frpdeck mcp install-stdio-wrapper --instance x",
+    )
+    monkeypatch.setattr("frpdeck.commands.mcp.instance_lock", lambda *args, **kwargs: calls.append("lock"))
+    monkeypatch.setattr("frpdeck.commands.mcp._write_wrapper_script", lambda *args, **kwargs: calls.append("write"))
+
+    result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "requires elevated privileges" in result.stdout
+    assert "--sudo" in result.stdout
+    assert calls == []
+
+
+def test_mcp_install_stdio_wrapper_sudo_reexec_happens_before_mutation(monkeypatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    _patch_privilege_reexec(monkeypatch, "frpdeck.commands.mcp")
+    monkeypatch.setattr("frpdeck.commands.mcp.instance_lock", lambda *args, **kwargs: calls.append("lock"))
+    monkeypatch.setattr("frpdeck.commands.mcp._write_wrapper_script", lambda *args, **kwargs: calls.append("write"))
+
+    result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path), "--sudo"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
+def test_mcp_install_stdio_wrapper_surfaces_audit_failure_as_warning(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "frpdeck.commands.mcp.record_audit_event",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 0, result.stdout
+    assert (tmp_path / WRAPPER_FILENAME).exists()
+    assert "WARNING: audit log append failed: disk full" in result.stdout
 
 
 def test_audit_recent_text_shows_latest_entries(tmp_path: Path) -> None:

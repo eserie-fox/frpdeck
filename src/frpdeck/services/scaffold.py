@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from frpdeck.config import (
-    config_deep_merge,
+from frpdeck.config.instance import (
     load_node_defaults,
     load_proxy_file_defaults,
     load_scaffold_instance_layout,
@@ -13,44 +12,62 @@ from frpdeck.config import (
     load_scaffold_proxy_file_overrides,
     load_scaffold_token_example,
 )
+from frpdeck.config.merge import config_deep_merge
+from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.domain.enums import Role
 from frpdeck.domain.proxy import ProxyFile
 from frpdeck.domain.state import NODE_CONFIG_ADAPTER
+from frpdeck.services.privilege import can_write_directory, root_owned_hint
 from frpdeck.storage.dump import dump_yaml_model
 
 
 def scaffold_instance(base_dir: Path, role: Role, instance_name: str) -> Path:
     """Create an instance directory with starter files."""
     instance_dir = (base_dir / instance_name).resolve()
-    instance_dir.mkdir(parents=True, exist_ok=False)
-    for relative in load_scaffold_instance_layout().directories_for_role(role):
-        (instance_dir / relative).mkdir(parents=True, exist_ok=True)
+    try:
+        instance_dir.mkdir(parents=True, exist_ok=False)
+        for relative in load_scaffold_instance_layout().directories_for_role(role):
+            (instance_dir / relative).mkdir(parents=True, exist_ok=True)
 
-    service_suffix = "frpc" if role == Role.CLIENT else "frps"
-    service_name = f"frpdeck-{instance_name}-{service_suffix}"
-    node_defaults = load_node_defaults(role)
-    node_scaffold_overrides = load_scaffold_node_overrides(role)
-    node_payload = config_deep_merge(
-        config_deep_merge(node_defaults, node_scaffold_overrides),
-        {
-            "instance_name": instance_name,
-            "role": role.value,
-            "service": {"service_name": service_name},
-        },
-    )
-    if role == Role.CLIENT:
-        node_payload = config_deep_merge(node_payload, {"client": {"user": instance_name}})
-    node = NODE_CONFIG_ADAPTER.validate_python(node_payload)
-    dump_yaml_model(node, instance_dir / "node.yaml")
-
-    if role == Role.CLIENT:
-        proxies = ProxyFile.model_validate(
-            config_deep_merge(
-                load_proxy_file_defaults(),
-                load_scaffold_proxy_file_overrides(),
-            )
+        service_suffix = "frpc" if role == Role.CLIENT else "frps"
+        service_name = f"frpdeck-{instance_name}-{service_suffix}"
+        node_defaults = load_node_defaults(role)
+        node_scaffold_overrides = load_scaffold_node_overrides(role)
+        node_payload = config_deep_merge(
+            config_deep_merge(node_defaults, node_scaffold_overrides),
+            {
+                "instance_name": instance_name,
+                "role": role.value,
+                "service": {"service_name": service_name},
+            },
         )
-        dump_yaml_model(proxies, instance_dir / "proxies.yaml")
+        if role == Role.CLIENT:
+            node_payload = config_deep_merge(node_payload, {"client": {"user": instance_name}})
+        node = NODE_CONFIG_ADAPTER.validate_python(node_payload)
+        dump_yaml_model(node, instance_dir / "node.yaml")
 
-    (instance_dir / "secrets" / "token.txt.example").write_text(load_scaffold_token_example(), encoding="utf-8")
+        if role == Role.CLIENT:
+            proxies = ProxyFile.model_validate(
+                config_deep_merge(
+                    load_proxy_file_defaults(),
+                    load_scaffold_proxy_file_overrides(),
+                )
+            )
+            dump_yaml_model(proxies, instance_dir / "proxies.yaml")
+
+        (instance_dir / "secrets" / "token.txt.example").write_text(load_scaffold_token_example(), encoding="utf-8")
+    except PermissionError as exc:
+        raise PermissionOperationError(
+            f"cannot create or update instance scaffold under {instance_dir}; use sudo or choose a writable directory"
+        ) from exc
     return instance_dir
+
+
+def analyze_init_root_requirements(base_dir: Path, instance_name: str) -> list[str]:
+    """Return the reasons why one init invocation requires elevated privileges."""
+    target = (base_dir.resolve() / instance_name).resolve()
+    if target.exists():
+        return []
+    if can_write_directory(target):
+        return []
+    return [f"target instance directory is not creatable by current user: {target}{root_owned_hint(target)}"]

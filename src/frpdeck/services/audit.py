@@ -120,7 +120,12 @@ def yaml_text(value: Any) -> str:
 def read_text_snapshot(path: Path, *, fallback: Any | None = None) -> str | None:
     """Read text from disk, or serialize fallback data when the file is absent."""
     if path.exists():
-        return path.read_text(encoding="utf-8")
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            if fallback is None:
+                return None
+            return yaml_text(fallback)
     if fallback is None:
         return None
     return yaml_text(fallback)

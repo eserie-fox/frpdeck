@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 
 from frpdeck.domain.errors import ConfigValidationError
-from frpdeck.services.installer import sync_rendered_to_runtime
+from frpdeck.services.installer import (
+    analyze_reload_root_requirements,
+    analyze_sync_root_requirements,
+    analyze_upgrade_root_requirements,
+    sync_rendered_to_runtime,
+)
 from tests.support import build_client_node, build_server_node
 
 
@@ -70,3 +75,59 @@ def test_sync_rendered_to_runtime_allows_server_without_proxies_directory(tmp_pa
     assert config_path == (tmp_path / "runtime" / "config" / "frps.toml")
     assert config_path.exists()
     assert not (tmp_path / "runtime" / "config" / "proxies.d").exists()
+
+
+def test_analyze_sync_root_requirements_reports_non_writable_lock_path(monkeypatch, tmp_path: Path) -> None:
+    node = build_client_node()
+    lock_path = tmp_path.resolve() / "state" / ".frpdeck.lock"
+
+    monkeypatch.setattr(
+        "frpdeck.services.installer.can_write_file",
+        lambda path: False if path == lock_path else True,
+    )
+    monkeypatch.setattr("frpdeck.services.installer.can_replace_directory", lambda path: True)
+    monkeypatch.setattr("frpdeck.services.installer.can_write_directory", lambda path: True)
+    monkeypatch.setattr("frpdeck.services.installer.can_read_path", lambda path: True)
+
+    reasons = analyze_sync_root_requirements(tmp_path, node)
+
+    assert any("instance lock path is not writable by current user" in reason for reason in reasons)
+
+
+def test_analyze_reload_root_requirements_reports_non_executable_binary(monkeypatch, tmp_path: Path) -> None:
+    node = build_client_node()
+    binary_path = tmp_path / "runtime" / "bin" / "frpc"
+    config_path = tmp_path / "runtime" / "config" / "frpc.toml"
+    proxies_dir = tmp_path / "runtime" / "config" / "proxies.d"
+    binary_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    proxies_dir.mkdir(parents=True, exist_ok=True)
+    binary_path.write_text("binary", encoding="utf-8")
+    config_path.write_text("serverAddr = 'example.com'\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "frpdeck.services.installer.can_execute_file",
+        lambda path: False if path == binary_path else True,
+    )
+    monkeypatch.setattr("frpdeck.services.installer.can_read_path", lambda path: True)
+
+    reasons = analyze_reload_root_requirements(tmp_path, node)
+
+    assert any("frpc binary is not executable by current user" in reason for reason in reasons)
+
+
+def test_analyze_upgrade_root_requirements_reports_restart_and_lock_reasons(monkeypatch, tmp_path: Path) -> None:
+    node = build_client_node()
+    lock_path = tmp_path.resolve() / "state" / ".frpdeck.lock"
+
+    monkeypatch.setattr(
+        "frpdeck.services.installer.can_write_file",
+        lambda path: False if path == lock_path else True,
+    )
+    monkeypatch.setattr("frpdeck.services.installer.can_write_directory", lambda path: True)
+    monkeypatch.setattr("frpdeck.services.installer.can_read_path", lambda path: True)
+
+    reasons = analyze_upgrade_root_requirements(tmp_path, node, restart_after=True)
+
+    assert any("instance lock path is not writable by current user" in reason for reason in reasons)
+    assert "will manage system service via systemctl" in reasons

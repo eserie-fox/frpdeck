@@ -21,7 +21,11 @@ DEFAULT_RETENTION_DAYS = 7
 
 
 class DailySymlinkFileHandler(logging.Handler):
-    """Write logs to daily files and keep a stable symlink to the latest file."""
+    """Write logs to daily files and keep a stable symlink to the latest file.
+
+    The provided path is expected to be the stable symlink name, not a resolved
+    daily log target from a previous rotation.
+    """
 
     def __init__(
         self,
