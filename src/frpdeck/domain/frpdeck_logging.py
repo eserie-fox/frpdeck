@@ -60,7 +60,8 @@ class FrpdeckLoggingConfig(BaseModel):
             return None
         raw_path = self.file_path.expanduser()
         if raw_path.is_absolute():
-            return raw_path.resolve()
-        return (instance_dir / raw_path).resolve()
+            return raw_path.parent.resolve() / raw_path.name
+        resolved_path = instance_dir / raw_path
+        return resolved_path.parent.resolve() / resolved_path.name
 
 __all__ = ["FrpdeckLoggingConfig", "LoggingStream"]

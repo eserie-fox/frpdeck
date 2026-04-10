@@ -133,6 +133,74 @@ def test_load_instance_logging_config_returns_resolved_config_without_mutating_r
     assert list(root.handlers) == original_handlers
 
 
+def test_load_instance_logging_config_keeps_stable_symlink_path_when_log_link_already_exists(tmp_path: Path) -> None:
+    dump_yaml_model(
+        build_client_node(
+            overrides={
+                "frpdeck_logging": {
+                    "level": "DEBUG",
+                    "stream": "none",
+                    "file_path": "state/logs/frpdeck.log",
+                }
+            }
+        ),
+        tmp_path / "node.yaml",
+    )
+    log_dir = tmp_path / "state" / "logs"
+    log_dir.mkdir(parents=True)
+    daily_file = log_dir / "frpdeck-2026-03-31.log"
+    daily_file.write_text("old\n", encoding="utf-8")
+    (log_dir / "frpdeck.log").symlink_to(daily_file)
+
+    _, config = load_instance_logging_config(tmp_path)
+
+    assert config.file_path == log_dir / "frpdeck.log"
+
+
+def test_daily_symlink_handler_does_not_reuse_resolved_daily_target_as_stem(tmp_path: Path) -> None:
+    dump_yaml_model(
+        build_client_node(
+            overrides={
+                "frpdeck_logging": {
+                    "level": "INFO",
+                    "stream": "none",
+                    "file_path": "state/logs/frpdeck.log",
+                }
+            }
+        ),
+        tmp_path / "node.yaml",
+    )
+    log_dir = tmp_path / "state" / "logs"
+    log_dir.mkdir(parents=True)
+    previous_daily_file = log_dir / "frpdeck-2026-03-31.log"
+    previous_daily_file.write_text("old\n", encoding="utf-8")
+    (log_dir / "frpdeck.log").symlink_to(previous_daily_file)
+
+    _, config = load_instance_logging_config(tmp_path)
+    assert config.file_path == log_dir / "frpdeck.log"
+
+    handler = DailySymlinkFileHandler(
+        config.file_path,
+        now_func=lambda: datetime(2026, 4, 1, 12, 0, 0),
+    )
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.emit(
+        logging.makeLogRecord(
+            {
+                "name": "frpdeck.test",
+                "levelno": logging.INFO,
+                "levelname": "INFO",
+                "msg": "rotate cleanly",
+            }
+        )
+    )
+    handler.close()
+
+    assert (log_dir / "frpdeck-2026-04-01.log").exists()
+    assert not (log_dir / "frpdeck-2026-03-31-2026-04-01.log").exists()
+    assert (log_dir / "frpdeck.log").resolve() == (log_dir / "frpdeck-2026-04-01.log").resolve()
+
+
 def test_apply_logging_config_uses_supplied_runtime_config(tmp_path: Path) -> None:
     config = ResolvedLoggingConfig(
         level=logging.INFO,
