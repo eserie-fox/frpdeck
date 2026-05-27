@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 1.1.4
+
+- Added `client.web_server.enable`, defaulting to `true`, so client instances can explicitly control whether frpc's web server is rendered.
+- When `client.web_server.enable` is `false`, `frpdeck` omits the generated `[webServer]` config even though default `addr` and `port` values still exist after config merge.
+- Made `reload` fail fast with a clear error when the client web server is disabled, because `frpc reload` depends on that control endpoint.
+- Documented the client web server enable behavior and covered the default, disabled render, config merge, scaffold, and reload paths with tests.
+
 ## 1.1.3
 
 - Added consistent full-command `--sudo` re-exec support for mutating workflows, with clearer fail-fast permission errors and retry hints.

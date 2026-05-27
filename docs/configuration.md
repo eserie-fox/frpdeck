@@ -196,6 +196,15 @@ Operational instance loading uses merge-before-validate:
 
 When present, `proxies.yaml` follows the same pattern with `proxy_file.json`.
 
+## Client Web Server Behavior
+
+Client `web_server` has an explicit frpdeck-side enable switch.
+
+- `client.web_server.enable` defaults to `true`
+- If `client.web_server.enable` is `false`, frpdeck does not render `[webServer]`, even though default `addr` and `port` still exist after merge
+- `enable` is not an FRP TOML field; frpdeck disables the FRP web server by omitting the generated `webServer` config
+- `reload` requires `client.web_server.enable: true` because `frpc reload` depends on the client web server control endpoint
+
 ## Server Vhost Behavior
 
 Server vhost fields are presence-based, not toggle-based.

@@ -37,6 +37,36 @@ def test_client_render_places_includes_before_first_table(tmp_path: Path) -> Non
     assert main_config.index('includes = [') < main_config.index('[transport]')
 
 
+def test_client_render_includes_web_server_by_default(tmp_path: Path) -> None:
+    node = build_client_node()
+
+    summary = render_instance(tmp_path, node)
+    main_config = summary.main_config_path.read_text(encoding="utf-8")
+
+    assert "[webServer]" in main_config
+    assert 'addr = "127.0.0.1"' in main_config
+    assert "port = 7400" in main_config
+
+
+def test_client_render_omits_web_server_when_disabled(tmp_path: Path) -> None:
+    node = build_client_node(
+        overrides={
+            "client": {
+                "web_server": {
+                    "enable": False,
+                }
+            }
+        }
+    )
+
+    summary = render_instance(tmp_path, node)
+    main_config = summary.main_config_path.read_text(encoding="utf-8")
+
+    assert "[webServer]" not in main_config
+    assert 'addr = "127.0.0.1"' not in main_config
+    assert "port = 7400" not in main_config
+
+
 def test_server_render_outputs_frps_toml(tmp_path: Path) -> None:
     node = build_server_node()
 

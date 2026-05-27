@@ -104,6 +104,7 @@ def test_init_client_creates_base_files(tmp_path: Path) -> None:
     assert node_payload["client"]["auth"]["token_file"] == "secrets/token.txt"
     assert node_payload["client"]["log"]["to"] == "runtime/logs/frpc.log"
     assert node_payload["client"]["server_port"] == 7000
+    assert node_payload["client"]["web_server"]["enable"] is True
     assert node_payload["frpdeck_logging"]["file_path"] == "state/logs/frpdeck.log"
     assert node_payload["frpdeck_logging"]["stream"] == "stderr"
     assert node_payload["service"]["service_name"] == "frpdeck-demo-node-frpc"
@@ -903,6 +904,23 @@ def test_reload_missing_runtime_config_mentions_sync_or_apply(tmp_path: Path) ->
 
     assert result.exit_code == 1, result.stdout
     assert "run sync or apply first" in result.stdout
+
+
+def test_reload_fails_fast_when_web_server_disabled(tmp_path: Path) -> None:
+    _write_client_instance(
+        tmp_path,
+        node_overrides={
+            "client": {
+                "server_addr": "server.example.com",
+                "web_server": {"enable": False},
+            }
+        },
+    )
+
+    result = RUNNER.invoke(app, ["reload", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1, result.stdout
+    assert "client.web_server.enable must be true for reload" in result.stdout
 
 
 def test_status_json_gracefully_handles_missing_systemctl(monkeypatch, tmp_path: Path) -> None:
