@@ -45,7 +45,13 @@ def register(app: typer.Typer) -> None:
                 typer.echo("ERROR: reload is only supported for client instances")
                 raise typer.Exit(code=1)
             assert isinstance(node, ClientNodeConfig)
-            if not node.client.web_server.addr or not node.client.web_server.port:
+            web_server = node.client.web_server
+            if not web_server.enable:
+                typer.echo(
+                    "ERROR: client.web_server.enable must be true for reload because frpc reload requires webServer"
+                )
+                raise typer.Exit(code=1)
+            if not web_server.addr or not web_server.port:
                 typer.echo("ERROR: client.web_server.addr and client.web_server.port are required for reload")
                 raise typer.Exit(code=1)
             raise_for_missing_privileges(
@@ -58,10 +64,14 @@ def register(app: typer.Typer) -> None:
                 typer.echo(f"ERROR: frpc binary not found: {paths.binary_path(node.role)}; run apply or upgrade first")
                 raise typer.Exit(code=1)
             if not paths.config_path(node.role).exists():
-                typer.echo(f"ERROR: FRP runtime config not found: {paths.config_path(node.role)}; run sync or apply first")
+                typer.echo(
+                    f"ERROR: FRP runtime config not found: {paths.config_path(node.role)}; run sync or apply first"
+                )
                 raise typer.Exit(code=1)
             with instance_logging_context(instance_dir, node=node):
-                result = run_command([str(paths.binary_path(node.role)), "reload", "-c", str(paths.config_path(node.role))])
+                result = run_command(
+                    [str(paths.binary_path(node.role)), "reload", "-c", str(paths.config_path(node.role))]
+                )
         except PermissionOperationError as exc:
             typer.echo(f"ERROR: {exc}")
             raise typer.Exit(code=1) from exc

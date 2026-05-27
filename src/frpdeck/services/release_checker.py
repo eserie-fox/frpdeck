@@ -66,7 +66,9 @@ def _fetch_release_payload(url: str) -> dict[str, object]:
     return payload
 
 
-def _release_from_payload(payload: dict[str, object], binary: BinaryConfig, requested_version: str | None = None) -> ReleaseInfo:
+def _release_from_payload(
+    payload: dict[str, object], binary: BinaryConfig, requested_version: str | None = None
+) -> ReleaseInfo:
     asset_suffix = f"_{binary.os}_{ARCH_ALIASES.get(binary.arch, binary.arch)}.tar.gz"
     version = str(payload.get("tag_name", "")).lstrip("v")
     if not version and requested_version:

@@ -9,7 +9,7 @@ includes = ["{{ includes_glob }}"]
 [transport]
 protocol = "{{ transport_protocol }}"
 
-{% if web_server.addr and web_server.port %}
+{% if web_server.enable and web_server.addr and web_server.port %}
 [webServer]
 addr = "{{ web_server.addr }}"
 port = {{ web_server.port }}

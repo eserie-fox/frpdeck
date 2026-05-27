@@ -72,10 +72,31 @@ def test_frp_log_level_is_constrained() -> None:
         build_client_node(overrides={"client": {"log": {"level": "verbose"}}})
 
 
-def test_proxy_discriminated_union() -> None:
-    tcp = PROXY_ADAPTER.validate_python(
-        {"name": "ssh", "type": "tcp", "local_port": 22, "remote_port": 6000}
+def test_client_web_server_enable_defaults_true_and_can_be_disabled() -> None:
+    node = build_client_node()
+    legacy_style = validate_node_mapping(
+        {
+            "instance_name": "demo-client",
+            "role": "client",
+            "service": {"service_name": "demo-frpc"},
+            "client": {
+                "server_addr": "example.com",
+                "web_server": {"addr": "127.0.0.1", "port": 7400},
+                "auth": {"token": "secret"},
+            },
+        }
     )
+    disabled = build_client_node(overrides={"client": {"web_server": {"enable": False}}})
+
+    assert node.client.web_server.enable is True
+    assert legacy_style.client.web_server.enable is True
+    assert disabled.client.web_server.enable is False
+    assert disabled.client.web_server.addr == "127.0.0.1"
+    assert disabled.client.web_server.port == 7400
+
+
+def test_proxy_discriminated_union() -> None:
+    tcp = PROXY_ADAPTER.validate_python({"name": "ssh", "type": "tcp", "local_port": 22, "remote_port": 6000})
     http = PROXY_ADAPTER.validate_python(
         {"name": "web", "type": "http", "local_port": 8080, "custom_domains": ["example.com"]}
     )

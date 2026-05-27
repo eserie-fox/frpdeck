@@ -24,6 +24,7 @@ def test_config_default_resources_are_readable_via_package_loaders() -> None:
 
     assert client_defaults["frpdeck_logging"]["stream"] == "stderr"
     assert client_defaults["client"]["log"]["level"] == "info"
+    assert client_defaults["client"]["web_server"]["enable"] is True
     assert server_defaults["server"]["vhost_http_port"] is None
     assert server_defaults["server"]["vhost_https_port"] is None
     assert client_overrides["client"]["server_addr"] == "PLEASE_FILL_SERVER_ADDR"

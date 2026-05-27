@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import pytest
 
 from typer.testing import CliRunner
 
@@ -125,8 +124,9 @@ def test_uninstall_resets_failed_service_state_best_effort(monkeypatch, tmp_path
     )
     monkeypatch.setattr(
         "frpdeck.services.uninstall.reset_failed_service",
-        lambda service_name, check=False: calls.append("reset_failed")
-        or _result("reset-failed", returncode=1, stderr="failed state already cleared"),
+        lambda service_name, check=False: (
+            calls.append("reset_failed") or _result("reset-failed", returncode=1, stderr="failed state already cleared")
+        ),
     )
 
     report = uninstall_instance(tmp_path)
@@ -150,7 +150,9 @@ def test_analyze_uninstall_root_requirements_reports_non_writable_purge_target(m
     _write_instance(tmp_path)
 
     monkeypatch.setattr("frpdeck.services.uninstall.command_exists", lambda command: False)
-    monkeypatch.setattr("frpdeck.services.uninstall.can_delete_path", lambda path: False if path == tmp_path.resolve() else True)
+    monkeypatch.setattr(
+        "frpdeck.services.uninstall.can_delete_path", lambda path: False if path == tmp_path.resolve() else True
+    )
 
     reasons = analyze_uninstall_root_requirements(tmp_path, purge=True)
 

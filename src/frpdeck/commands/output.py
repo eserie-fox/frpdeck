@@ -66,7 +66,9 @@ def serialize_proxy(proxy: ProxyConfig) -> dict[str, Any]:
         "use_encryption": proxy.transport.use_encryption,
         "use_compression": proxy.transport.use_compression,
         "bandwidth_limit": proxy.transport.bandwidth_limit,
-        "bandwidth_limit_mode": proxy.transport.bandwidth_limit_mode.value if proxy.transport.bandwidth_limit_mode else None,
+        "bandwidth_limit_mode": proxy.transport.bandwidth_limit_mode.value
+        if proxy.transport.bandwidth_limit_mode
+        else None,
     }
     return {
         "name": proxy.name,

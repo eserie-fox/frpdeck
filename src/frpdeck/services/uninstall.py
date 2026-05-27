@@ -56,7 +56,9 @@ class UninstallReport:
     instance_deleted: bool = False
 
 
-def analyze_uninstall_root_requirements(instance_dir: Path, *, purge: bool = False, node: NodeBase | None = None) -> list[str]:
+def analyze_uninstall_root_requirements(
+    instance_dir: Path, *, purge: bool = False, node: NodeBase | None = None
+) -> list[str]:
     """Return the reasons why one uninstall invocation requires root."""
     instance = instance_dir.resolve()
     resolved_node = node or load_node_config(instance)

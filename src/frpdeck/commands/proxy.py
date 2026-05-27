@@ -28,7 +28,11 @@ from frpdeck.domain.errors import (
 from frpdeck.domain.proxy import ProxyConfig
 from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult, ProxyUpdatePatch
 from frpdeck.logging.daily_symlink import instance_logging_context
-from frpdeck.services.proxy_manager import ProxyManager, analyze_proxy_write_root_requirements, load_proxy_spec_from_file
+from frpdeck.services.proxy_manager import (
+    ProxyManager,
+    analyze_proxy_write_root_requirements,
+    load_proxy_spec_from_file,
+)
 
 
 proxy_app = typer.Typer(help="Structured local proxy management", no_args_is_help=True)
@@ -73,7 +77,9 @@ def show_command(
 ) -> None:
     """Show a single proxy as YAML."""
     ctx = _command_context("proxy show", instance, json_output)
-    proxy = _run_proxy_action(ctx, lambda: MANAGER.get_proxy(ctx.instance_dir, name), errors=(ConfigLoadError, ProxyNotFoundError))
+    proxy = _run_proxy_action(
+        ctx, lambda: MANAGER.get_proxy(ctx.instance_dir, name), errors=(ConfigLoadError, ProxyNotFoundError)
+    )
     _emit_proxy_show(ctx, proxy)
 
 
@@ -176,7 +182,9 @@ def add_http_command(
     name: str = typer.Option(..., "--name", help="Proxy name"),
     local_ip: str = typer.Option("127.0.0.1", "--local-ip", help="Local IP"),
     local_port: int = typer.Option(..., "--local-port", min=1, max=65535, help="Local port"),
-    custom_domain: list[str] | None = typer.Option(None, "--custom-domain", help="Custom domain; repeat for multiple domains"),
+    custom_domain: list[str] | None = typer.Option(
+        None, "--custom-domain", help="Custom domain; repeat for multiple domains"
+    ),
     subdomain: str | None = typer.Option(None, "--subdomain", help="Subdomain"),
     description: str | None = typer.Option(None, "--description", help="Description"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
@@ -208,7 +216,9 @@ def add_https_command(
     name: str = typer.Option(..., "--name", help="Proxy name"),
     local_ip: str = typer.Option("127.0.0.1", "--local-ip", help="Local IP"),
     local_port: int = typer.Option(..., "--local-port", min=1, max=65535, help="Local port"),
-    custom_domain: list[str] | None = typer.Option(None, "--custom-domain", help="Custom domain; repeat for multiple domains"),
+    custom_domain: list[str] | None = typer.Option(
+        None, "--custom-domain", help="Custom domain; repeat for multiple domains"
+    ),
     subdomain: str | None = typer.Option(None, "--subdomain", help="Subdomain"),
     description: str | None = typer.Option(None, "--description", help="Description"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
@@ -459,7 +469,9 @@ def _emit_proxy_list(ctx: _ProxyCommandContext, proxies: list[ProxyConfig]) -> N
 
 def _emit_proxy_show(ctx: _ProxyCommandContext, proxy: ProxyConfig) -> None:
     if ctx.json_output:
-        emit_json_envelope(command=ctx.command, instance=ctx.instance_dir, ok=True, data={"proxy": serialize_proxy(proxy)})
+        emit_json_envelope(
+            command=ctx.command, instance=ctx.instance_dir, ok=True, data={"proxy": serialize_proxy(proxy)}
+        )
         return
     typer.echo(yaml.safe_dump(proxy.model_dump(mode="json", exclude_none=True), sort_keys=False).strip())
 

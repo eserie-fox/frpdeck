@@ -27,6 +27,7 @@ client:
   server_port: 7000
   transport_protocol: tcp
   web_server:
+    enable: true
     addr: 127.0.0.1
     port: 7400
   login_fail_exit: false

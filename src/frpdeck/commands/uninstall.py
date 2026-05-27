@@ -8,7 +8,12 @@ import typer
 
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
-from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, ConfigValidationError, PermissionOperationError
+from frpdeck.domain.errors import (
+    CommandExecutionError,
+    ConfigLoadError,
+    ConfigValidationError,
+    PermissionOperationError,
+)
 from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.uninstall import UninstallReport, analyze_uninstall_root_requirements, uninstall_instance
 from frpdeck.storage.load import load_node_config

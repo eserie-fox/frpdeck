@@ -159,13 +159,29 @@ class ToolSpec:
 
 
 _TOOL_SPECS: tuple[ToolSpec, ...] = (
-    ToolSpec("list_proxies", "list_proxies", "List proxies from proxies.yaml for an instance directory.", "instance_only", "list_proxies_tool"),
+    ToolSpec(
+        "list_proxies",
+        "list_proxies",
+        "List proxies from proxies.yaml for an instance directory.",
+        "instance_only",
+        "list_proxies_tool",
+    ),
     ToolSpec("get_proxy", "get_proxy", "Get a single proxy by name from proxies.yaml.", "name", "get_proxy_tool"),
-    ToolSpec("update_proxy", "update_proxy", "Apply a structured patch to an existing proxy.", "update", "update_proxy_tool"),
-    ToolSpec("remove_proxy", "remove_proxy", "Remove a proxy, soft-disabling it by default.", "remove", "remove_proxy_tool"),
+    ToolSpec(
+        "update_proxy", "update_proxy", "Apply a structured patch to an existing proxy.", "update", "update_proxy_tool"
+    ),
+    ToolSpec(
+        "remove_proxy", "remove_proxy", "Remove a proxy, soft-disabling it by default.", "remove", "remove_proxy_tool"
+    ),
     ToolSpec("enable_proxy", "enable_proxy", "Enable a proxy in proxies.yaml.", "name", "enable_proxy_tool"),
     ToolSpec("disable_proxy", "disable_proxy", "Disable a proxy in proxies.yaml.", "name", "disable_proxy_tool"),
-    ToolSpec("preview_proxy_changes", "preview_proxy_changes", "Preview rendered proxy outputs without mutating rendered/.", "instance_only", "preview_proxy_changes_tool"),
+    ToolSpec(
+        "preview_proxy_changes",
+        "preview_proxy_changes",
+        "Preview rendered proxy outputs without mutating rendered/.",
+        "instance_only",
+        "preview_proxy_changes_tool",
+    ),
 )
 
 
@@ -229,6 +245,7 @@ def _build_add_proxy_wrapper(
     audit_meta: dict[str, Any],
 ) -> Callable[..., FacadeResult]:
     if bound_instance_dir is not None:
+
         def tool(
             protocol: ProxyProtocol,
             name: str,
@@ -299,6 +316,7 @@ def _build_import_proxy_file_wrapper(
     audit_meta: dict[str, Any],
 ) -> Callable[..., FacadeResult]:
     if bound_instance_dir is not None:
+
         def tool(file_path: str) -> FacadeResult:
             return _safe_facade_call(
                 "import_proxy_file",
@@ -378,6 +396,7 @@ def _resolve_tool_caller(spec: ToolSpec) -> Callable[..., FacadeResult]:
 
 def _build_instance_only_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     if bound_instance_dir is not None:
+
         def tool() -> FacadeResult:
             return invoke(bound_instance_dir)
 
@@ -391,6 +410,7 @@ def _build_instance_only_tool(bound_instance_dir: Path | None, invoke: ToolInvok
 
 def _build_name_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     if bound_instance_dir is not None:
+
         def tool(name: str) -> FacadeResult:
             return invoke(bound_instance_dir, (name,))
 
@@ -404,6 +424,7 @@ def _build_name_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
 
 def _build_update_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     if bound_instance_dir is not None:
+
         def tool(name: str, patch_spec: dict[str, Any]) -> FacadeResult:
             return invoke(bound_instance_dir, (name, patch_spec))
 
@@ -417,6 +438,7 @@ def _build_update_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
 
 def _build_remove_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     if bound_instance_dir is not None:
+
         def tool(name: str, soft: bool = True) -> FacadeResult:
             return invoke(bound_instance_dir, (name,), {"soft": soft})
 

@@ -146,7 +146,9 @@ class ApplyService:
             if reusing_existing_binary:
                 progress.step_skipped(f"Using existing {binary_path.name} binary version {binary_version}.")
             elif explicit_archive is not None:
-                progress.step_succeeded(f"Installed {binary_path.name} binary version {binary_version} from {explicit_archive}.")
+                progress.step_succeeded(
+                    f"Installed {binary_path.name} binary version {binary_version} from {explicit_archive}."
+                )
             else:
                 progress.step_succeeded(f"Installed {binary_path.name} binary version {binary_version}.")
         else:
@@ -231,7 +233,10 @@ def analyze_apply_root_requirements(
 
     runtime_config_path = paths.config_path(node.role)
     if not can_write_file(runtime_config_path):
-        _append_reason(reasons, f"runtime config path is not writable by current user: {runtime_config_path}{root_owned_hint(runtime_config_path)}")
+        _append_reason(
+            reasons,
+            f"runtime config path is not writable by current user: {runtime_config_path}{root_owned_hint(runtime_config_path)}",
+        )
 
     if node.role == Role.CLIENT:
         runtime_proxies_dir = paths.proxies_dir()
@@ -243,23 +248,35 @@ def analyze_apply_root_requirements(
 
     for log_dir in _frp_log_parent_dirs(instance, node):
         if not can_write_directory(log_dir):
-            _append_reason(reasons, f"FRP log directory is not writable by current user: {log_dir}{root_owned_hint(log_dir)}")
+            _append_reason(
+                reasons, f"FRP log directory is not writable by current user: {log_dir}{root_owned_hint(log_dir)}"
+            )
 
     rendered_root = instance / "rendered"
     if not can_write_directory(rendered_root):
-        _append_reason(reasons, f"rendered output path is not writable by current user: {rendered_root}{root_owned_hint(rendered_root)}")
+        _append_reason(
+            reasons,
+            f"rendered output path is not writable by current user: {rendered_root}{root_owned_hint(rendered_root)}",
+        )
 
     state_root = instance / "state"
     if not can_write_directory(state_root):
-        _append_reason(reasons, f"state path is not writable by current user: {state_root}{root_owned_hint(state_root)}")
+        _append_reason(
+            reasons, f"state path is not writable by current user: {state_root}{root_owned_hint(state_root)}"
+        )
 
     needs_binary_install = install_if_missing and _apply_will_install_binary(instance, node, archive=archive)
     if needs_binary_install and not can_write_directory(paths.install_dir):
-        _append_reason(reasons, f"install path is not writable by current user: {paths.install_dir}{root_owned_hint(paths.install_dir)}")
+        _append_reason(
+            reasons,
+            f"install path is not writable by current user: {paths.install_dir}{root_owned_hint(paths.install_dir)}",
+        )
 
     backup_root = instance / "backups"
     if _apply_will_write_backups(paths, node) and not can_write_directory(backup_root):
-        _append_reason(reasons, f"backup path is not writable by current user: {backup_root}{root_owned_hint(backup_root)}")
+        _append_reason(
+            reasons, f"backup path is not writable by current user: {backup_root}{root_owned_hint(backup_root)}"
+        )
 
     return reasons
 

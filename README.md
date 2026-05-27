@@ -12,6 +12,19 @@ It is also MCP-friendly. `frpdeck` includes a local stdio MCP thin wrapper so an
 - Append-only audit logging and revision snapshots for write operations.
 - Local stdio MCP support for LLM-assisted proxy maintenance.
 
+## Quick start
+
+For setup steps and first client/server workflows, start with [`QUICKSTART.md`](QUICKSTART.md).
+
+Minimal client path:
+
+```bash
+pip install frpdeck
+frpdeck init client my-client
+frpdeck validate --instance ./my-client
+frpdeck apply --instance ./my-client --sudo
+```
+
 ## Installation
 
 Install from PyPI:
@@ -41,6 +54,7 @@ python -m pip install -e '.[dev]'
 
 Key design notes now live under `docs/`:
 
+- [`QUICKSTART.md`](QUICKSTART.md): install and first client/server workflows
 - [`docs/architecture.md`](docs/architecture.md): layer boundaries and dependency direction
 - [`docs/configuration.md`](docs/configuration.md): instance config shape, defaults, path resolution, and logging semantics
 - [`docs/development.md`](docs/development.md): local development, tests, packaging, and MCP testing
@@ -74,67 +88,6 @@ All mutating commands support `--sudo`. When a non-root user passes `--sudo`, `f
 - Remote centralized control
 - Interactive TOML editing
 
-## Quick start
-
-Running `frpdeck` with no arguments now shows the built-in command help, including common entry points such as `init`, `apply`, `proxy`, `status`, and `python -m frpdeck.mcp.server`.
-
-Initialize a client instance:
-
-```bash
-frpdeck init client my-client
-```
-
-The generated client scaffold includes a sample HTTP proxy in `proxies.yaml` so the route fields are visible in the initial config shape.
-
-Edit the generated configuration and secret material:
-
-```bash
-${EDITOR:-vi} ./my-client/node.yaml
-${EDITOR:-vi} ./my-client/proxies.yaml
-mkdir -p ./my-client/secrets
-printf 'replace-me\n' > ./my-client/secrets/token.txt
-```
-
-`instance_name` is the logical identity stored in `node.yaml`. It may differ from the directory name; status, service naming defaults, and audit data use `instance_name`, not `instance_dir.name`.
-
-Validate the source configuration:
-
-```bash
-frpdeck validate --instance ./my-client
-```
-
-Render generated files:
-
-```bash
-frpdeck render --instance ./my-client
-```
-
-Mirror the rendered snapshot into runtime config without restarting anything:
-
-```bash
-frpdeck sync --instance ./my-client --sudo
-```
-
-Apply an instance to the configured runtime paths:
-
-```bash
-frpdeck apply --instance ./my-client --sudo
-```
-
-For offline install or replacement from a local FRP archive:
-
-```bash
-frpdeck apply --instance ./my-client --archive /path/to/frp_0.65.0_linux_amd64.tar.gz --sudo
-```
-
-Inspect runtime state:
-
-```bash
-frpdeck status --instance ./my-client
-```
-
-Apply emits stage-by-stage progress in text mode so it is clear when validation, rendering, binary download/install, runtime sync, systemd install, and restart are happening.
-
 ## Command semantics
 
 - `validate` reads `node.yaml` and `proxies.yaml`, validates them, and exits. It does not write `rendered/` or `runtime/config`.
@@ -157,30 +110,6 @@ Delete the instance directory as well:
 ```bash
 frpdeck uninstall --instance ./my-client --purge
 ```
-
-## Typical workflows
-
-### Client instance
-
-1. Run `frpdeck init client your-client`.
-2. Replace `PLEASE_FILL_SERVER_ADDR` and domain placeholders in `node.yaml` and `proxies.yaml`.
-3. Create `secrets/token.txt` with the real token.
-4. Run `frpdeck validate --instance ./your-client`.
-5. Run `frpdeck render --instance ./your-client`.
-6. Run `frpdeck apply --instance ./your-client --sudo`.
-7. Run `frpdeck status --instance ./your-client`.
-
-For offline binary management, `apply --archive`, `upgrade --archive`, and `binary.local_archive` are all supported.
-
-### Server instance
-
-1. Run `frpdeck init server your-server`.
-2. Create `secrets/token.txt`.
-3. If you want FRP vhost routing, explicitly set `server.vhost_http_port` and/or `server.vhost_https_port` in `node.yaml`.
-4. If you want subdomain-based routing, also set `server.subdomain_host`.
-5. Run `frpdeck validate --instance ./your-server`.
-6. Run `frpdeck render --instance ./your-server`.
-7. Run `frpdeck apply --instance ./your-server --sudo`.
 
 ## Server vhost modes
 

@@ -14,6 +14,46 @@ python3.11 -m venv .venv
 python -m pip install -e '.[dev]'
 ```
 
+The CI workflow uses `uv`, so this equivalent setup is also supported:
+
+```bash
+uv sync --extra dev
+```
+
+Runtime dependencies should keep only minimum supported versions. When a newer dependency release breaks behavior,
+update the implementation and tests for the new version instead of adding long-term upper bounds.
+
+## Make Targets
+
+The repository includes a small `Makefile` for common local workflows:
+
+```bash
+make sync
+make format
+make format-check
+make lint
+make test
+make check
+```
+
+`make check` runs the same validation categories as CI: formatting check, lint, and tests. The GitHub Actions workflow keeps the underlying `uv` commands explicit so individual CI steps remain easy to inspect.
+
+## Format and Lint
+
+Check formatting and linting with:
+
+```bash
+ruff format --check .
+ruff check .
+```
+
+With `uv`:
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+```
+
 ## Tests
 
 Run the test suite with:

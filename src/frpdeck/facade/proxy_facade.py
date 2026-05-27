@@ -35,7 +35,11 @@ class ProxyFacade:
         try:
             with instance_logging_context(instance):
                 proxies = self._manager.list_proxies(instance)
-            return self._success(operation, instance, {"count": len(proxies), "proxies": [self._serialize_proxy(proxy) for proxy in proxies]})
+            return self._success(
+                operation,
+                instance,
+                {"count": len(proxies), "proxies": [self._serialize_proxy(proxy) for proxy in proxies]},
+            )
         except Exception as exc:
             return self._error(operation, instance, exc)
 
@@ -188,7 +192,9 @@ class ProxyFacade:
             "local_ip": proxy.local_ip,
             "local_port": proxy.local_port,
             "remote_port": proxy.remote_port if isinstance(proxy, (TcpProxyConfig, UdpProxyConfig)) else None,
-            "custom_domains": list(proxy.custom_domains) if isinstance(proxy, (HttpProxyConfig, HttpsProxyConfig)) else [],
+            "custom_domains": list(proxy.custom_domains)
+            if isinstance(proxy, (HttpProxyConfig, HttpsProxyConfig))
+            else [],
             "subdomain": proxy.subdomain if isinstance(proxy, (HttpProxyConfig, HttpsProxyConfig)) else None,
             "annotations": dict(proxy.annotations),
             "metadatas": dict(proxy.metadatas),

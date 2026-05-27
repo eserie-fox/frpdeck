@@ -91,7 +91,7 @@ def _serialize_context_params(
         if name is None or name in excluded_names:
             continue
         value = overrides[name] if name in overrides else ctx.params.get(name)
-        if isinstance(parameter, click.Argument):
+        if _is_argument(parameter):
             argv.extend(_serialize_argument(value))
             continue
         if name not in overrides and ctx.get_parameter_source(name) in _DEFAULT_PARAMETER_SOURCES:
@@ -104,25 +104,34 @@ def _serialize_argument(value: Any) -> list[str]:
     return [_serialize_scalar(item) for item in _iter_values(value)]
 
 
-def _serialize_option(parameter: click.Option, value: Any) -> list[str]:
+def _is_argument(parameter: Any) -> bool:
+    return getattr(parameter, "param_type_name", None) == "argument" or isinstance(parameter, click.Argument)
+
+
+def _serialize_option(parameter: Any, value: Any) -> list[str]:
     if value is None:
         return []
 
-    if parameter.is_bool_flag:
-        if value:
-            return [parameter.opts[0]]
-        if parameter.secondary_opts:
-            return [parameter.secondary_opts[0]]
+    opts = getattr(parameter, "opts", [])
+    secondary_opts = getattr(parameter, "secondary_opts", [])
+    if not opts:
         return []
 
-    if parameter.multiple:
+    if getattr(parameter, "is_bool_flag", False):
+        if value:
+            return [opts[0]]
+        if secondary_opts:
+            return [secondary_opts[0]]
+        return []
+
+    if getattr(parameter, "multiple", False):
         argv: list[str] = []
         for item in _iter_values(value):
-            argv.append(parameter.opts[0])
+            argv.append(opts[0])
             argv.extend(_serialize_composite_value(item))
         return argv
 
-    return [parameter.opts[0], *_serialize_composite_value(value)]
+    return [opts[0], *_serialize_composite_value(value)]
 
 
 def _serialize_composite_value(value: Any) -> list[str]:

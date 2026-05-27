@@ -67,4 +67,3 @@ class PreviewReport(BaseModel):
     enabled_proxies: list[str] = Field(default_factory=list)
     disabled_proxies: list[str] = Field(default_factory=list)
     rendered_proxy_files: list[str] = Field(default_factory=list)
-

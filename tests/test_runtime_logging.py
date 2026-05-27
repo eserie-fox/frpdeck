@@ -246,7 +246,9 @@ def test_instance_logging_context_uses_instance_file_and_restores_previous_handl
     assert "instance logging active" in symlink.resolve().read_text(encoding="utf-8")
 
 
-def test_instance_logging_context_stream_override_none_suppresses_console_and_keeps_file_logging(tmp_path: Path, capsys) -> None:
+def test_instance_logging_context_stream_override_none_suppresses_console_and_keeps_file_logging(
+    tmp_path: Path, capsys
+) -> None:
     dump_yaml_model(
         build_client_node(
             overrides={

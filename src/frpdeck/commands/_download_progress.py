@@ -40,8 +40,7 @@ class CliDownloadProgressReporter:
                 return
             self._last_percent_bucket = bucket
             self.echo(
-                "Download progress: "
-                f"{bucket * 10}% ({_format_size(downloaded_bytes)} / {_format_size(total_bytes)})"
+                f"Download progress: {bucket * 10}% ({_format_size(downloaded_bytes)} / {_format_size(total_bytes)})"
             )
             return
 

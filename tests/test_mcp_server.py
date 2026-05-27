@@ -10,7 +10,13 @@ from frpdeck.domain.errors import ConfigLoadError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
 from frpdeck.mcp.resources import instance_status_resource, proxy_runtime_status_resource
 from frpdeck.mcp.server import create_mcp_server, main
-from frpdeck.mcp.tools import add_proxy_tool, get_proxy_tool, import_proxy_file_tool, list_proxies_tool, preview_proxy_changes_tool
+from frpdeck.mcp.tools import (
+    add_proxy_tool,
+    get_proxy_tool,
+    import_proxy_file_tool,
+    list_proxies_tool,
+    preview_proxy_changes_tool,
+)
 from frpdeck.storage.dump import dump_json_data, dump_yaml_model
 from tests.support import build_client_node
 
@@ -42,6 +48,8 @@ def _write_client_instance(instance_dir: Path, *, node_overrides: dict[str, obje
         },
         instance_dir / "state" / "last_apply.json",
     )
+
+
 def _list_tools(server: FastMCP) -> dict[str, object]:
     async def run() -> dict[str, object]:
         return {tool.name: tool for tool in await server.list_tools()}

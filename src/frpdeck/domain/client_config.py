@@ -56,6 +56,7 @@ class WebServerConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    enable: bool
     addr: str | None
     port: int | None
 
