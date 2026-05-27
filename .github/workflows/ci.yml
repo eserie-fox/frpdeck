@@ -22,6 +22,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
+          cache-suffix: format-lint
 
       - name: Set up Python
         run: uv python install 3.13
@@ -50,6 +51,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
+          cache-suffix: tests
 
       - name: Set up Python
         run: uv python install 3.13
