@@ -8,7 +8,14 @@ from pathlib import Path
 
 from frpdeck.domain.enums import ProxyType, Role
 from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError
-from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyConfig, ProxyFile, TcpProxyConfig, UdpProxyConfig
+from frpdeck.domain.proxy import (
+    HttpProxyConfig,
+    HttpsProxyConfig,
+    ProxyConfig,
+    ProxyFile,
+    TcpProxyConfig,
+    UdpProxyConfig,
+)
 from frpdeck.domain.state import ClientNodeConfig, NodeBase
 from frpdeck.domain.status_models import (
     ClientRuntimeStatus,
@@ -135,15 +142,23 @@ class StatusService:
         counts.by_type = by_type
         return counts
 
-    def _build_render_summary(self, instance: Path, node: NodeBase | None, enabled_proxies: list[ProxyConfig]) -> RenderSummaryStatus:
+    def _build_render_summary(
+        self, instance: Path, node: NodeBase | None, enabled_proxies: list[ProxyConfig]
+    ) -> RenderSummaryStatus:
         rendered_root = instance / "rendered"
         if node is None:
             main_config_exists = (rendered_root / "frpc.toml").exists() or (rendered_root / "frps.toml").exists()
         else:
             main_name = "frpc.toml" if node.role == Role.CLIENT else "frps.toml"
             main_config_exists = (rendered_root / main_name).exists()
-        rendered_proxy_files = sorted(path.name for path in (rendered_root / "proxies.d").glob("*.toml")) if (rendered_root / "proxies.d").exists() else []
-        matches_enabled = None if node is not None and node.role == Role.SERVER else len(rendered_proxy_files) == len(enabled_proxies)
+        rendered_proxy_files = (
+            sorted(path.name for path in (rendered_root / "proxies.d").glob("*.toml"))
+            if (rendered_root / "proxies.d").exists()
+            else []
+        )
+        matches_enabled = (
+            None if node is not None and node.role == Role.SERVER else len(rendered_proxy_files) == len(enabled_proxies)
+        )
         return RenderSummaryStatus(
             main_config_exists=main_config_exists,
             rendered_proxy_files=rendered_proxy_files,
@@ -184,7 +199,9 @@ class StatusService:
             raw_output=raw_output,
         )
 
-    def _read_client_runtime_status(self, instance: Path, node: NodeBase | None, warnings: list[str]) -> ClientRuntimeStatus | None:
+    def _read_client_runtime_status(
+        self, instance: Path, node: NodeBase | None, warnings: list[str]
+    ) -> ClientRuntimeStatus | None:
         if node is None or node.role != Role.CLIENT:
             return None
         assert isinstance(node, ClientNodeConfig)
@@ -194,7 +211,9 @@ class StatusService:
             return ClientRuntimeStatus(available=False, note=f"frpc binary not found at {paths.binary_path(node.role)}")
         if not paths.config_path(node.role).exists():
             warnings.append(f"FRP runtime config not found at {paths.config_path(node.role)}")
-            return ClientRuntimeStatus(available=False, note=f"FRP runtime config not found at {paths.config_path(node.role)}")
+            return ClientRuntimeStatus(
+                available=False, note=f"FRP runtime config not found at {paths.config_path(node.role)}"
+            )
         try:
             result = run_command(
                 [str(paths.binary_path(node.role)), "status", "-c", str(paths.config_path(node.role))],

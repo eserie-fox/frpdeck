@@ -28,14 +28,18 @@ def _write_client_instance(instance_dir: Path) -> None:
     (instance_dir / "state").mkdir(parents=True, exist_ok=True)
     (instance_dir / "state" / "current_version.txt").write_text("0.61.0\n", encoding="utf-8")
     dump_json_data(
-        ApplyState.create(service_name="client-demo-frpc", config_path=instance_dir / "runtime" / "config" / "frpc.toml").model_dump(mode="json"),
+        ApplyState.create(
+            service_name="client-demo-frpc", config_path=instance_dir / "runtime" / "config" / "frpc.toml"
+        ).model_dump(mode="json"),
         instance_dir / "state" / "last_apply.json",
     )
 
 
 def test_get_instance_status_returns_aggregated_fields(monkeypatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
-    monkeypatch.setattr("frpdeck.services.status_service.status_service", lambda service_name: "Active: active (running)")
+    monkeypatch.setattr(
+        "frpdeck.services.status_service.status_service", lambda service_name: "Active: active (running)"
+    )
 
     status = StatusService().get_instance_status(tmp_path)
 

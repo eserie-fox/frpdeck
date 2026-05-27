@@ -1,6 +1,5 @@
 import io
 import json
-import tarfile
 from pathlib import Path
 
 from frpdeck.config.instance import load_scaffold_instance_layout

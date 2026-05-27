@@ -30,11 +30,13 @@ def test_client_render_places_includes_before_first_table(tmp_path: Path) -> Non
         }
     )
 
-    summary = render_instance(tmp_path, node, ProxyFile(proxies=[TcpProxyConfig(name="ssh", local_port=22, remote_port=6000)]))
+    summary = render_instance(
+        tmp_path, node, ProxyFile(proxies=[TcpProxyConfig(name="ssh", local_port=22, remote_port=6000)])
+    )
     main_config = summary.main_config_path.read_text(encoding="utf-8")
 
-    assert 'includes = [' in main_config
-    assert main_config.index('includes = [') < main_config.index('[transport]')
+    assert "includes = [" in main_config
+    assert main_config.index("includes = [") < main_config.index("[transport]")
 
 
 def test_client_render_includes_web_server_by_default(tmp_path: Path) -> None:

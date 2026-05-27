@@ -181,7 +181,9 @@ def analyze_sync_root_requirements(instance_dir: Path, node: NodeBase) -> list[s
 
     runtime_config_path = paths.config_path(node.role)
     if not can_write_file(runtime_config_path):
-        reasons.append(f"runtime config path is not writable by current user: {runtime_config_path}{root_owned_hint(runtime_config_path)}")
+        reasons.append(
+            f"runtime config path is not writable by current user: {runtime_config_path}{root_owned_hint(runtime_config_path)}"
+        )
 
     if node.role == Role.CLIENT:
         runtime_proxies_dir = paths.proxies_dir()
@@ -200,7 +202,9 @@ def analyze_sync_root_requirements(instance_dir: Path, node: NodeBase) -> list[s
 
     rendered_main = instance / "rendered" / ("frpc.toml" if node.role == Role.CLIENT else "frps.toml")
     if rendered_main.exists() and not can_read_path(rendered_main):
-        reasons.append(f"rendered main config is not readable by current user: {rendered_main}{root_owned_hint(rendered_main)}")
+        reasons.append(
+            f"rendered main config is not readable by current user: {rendered_main}{root_owned_hint(rendered_main)}"
+        )
 
     if node.role == Role.CLIENT:
         rendered_proxies = instance / "rendered" / "proxies.d"
@@ -224,7 +228,9 @@ def analyze_reload_root_requirements(instance_dir: Path, node: NodeBase) -> list
         reasons.append(f"frpc binary is not executable by current user: {binary_path}{root_owned_hint(binary_path)}")
 
     if config_path.exists() and not can_read_path(config_path):
-        reasons.append(f"runtime config path is not readable by current user: {config_path}{root_owned_hint(config_path)}")
+        reasons.append(
+            f"runtime config path is not readable by current user: {config_path}{root_owned_hint(config_path)}"
+        )
 
     if node.role == Role.CLIENT:
         runtime_proxies_dir = paths.proxies_dir()
@@ -255,7 +261,9 @@ def analyze_upgrade_root_requirements(
         reasons.append(f"instance lock path is not writable by current user: {lock_path}{root_owned_hint(lock_path)}")
 
     if not can_write_directory(paths.install_dir):
-        reasons.append(f"install path is not writable by current user: {paths.install_dir}{root_owned_hint(paths.install_dir)}")
+        reasons.append(
+            f"install path is not writable by current user: {paths.install_dir}{root_owned_hint(paths.install_dir)}"
+        )
 
     if not can_write_directory(state_root):
         reasons.append(f"state path is not writable by current user: {state_root}{root_owned_hint(state_root)}")
@@ -278,7 +286,9 @@ def analyze_upgrade_root_requirements(
             else (instance / node.binary.local_archive).resolve()
         )
         if resolved_archive.exists() and not can_read_path(resolved_archive):
-            reasons.append(f"archive is not readable by current user: {resolved_archive}{root_owned_hint(resolved_archive)}")
+            reasons.append(
+                f"archive is not readable by current user: {resolved_archive}{root_owned_hint(resolved_archive)}"
+            )
 
     if restart_after:
         reasons.append("will manage system service via systemctl")
@@ -329,6 +339,4 @@ def _validate_rendered_snapshot(
     if not rendered_main.exists() or not rendered_main.is_file():
         raise ConfigValidationError(f"rendered main config not found: {rendered_main}; run render first")
     if node.role == Role.CLIENT and (not rendered_proxies.exists() or not rendered_proxies.is_dir()):
-        raise ConfigValidationError(
-            f"rendered proxy include directory not found: {rendered_proxies}; run render first"
-        )
+        raise ConfigValidationError(f"rendered proxy include directory not found: {rendered_proxies}; run render first")

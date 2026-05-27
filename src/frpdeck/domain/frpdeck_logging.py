@@ -64,4 +64,5 @@ class FrpdeckLoggingConfig(BaseModel):
         resolved_path = instance_dir / raw_path
         return resolved_path.parent.resolve() / resolved_path.name
 
+
 __all__ = ["FrpdeckLoggingConfig", "LoggingStream"]

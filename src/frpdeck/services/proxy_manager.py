@@ -11,7 +11,6 @@ from pydantic import ValidationError
 from frpdeck.domain.enums import ProxyType, Role
 from frpdeck.domain.errors import (
     ConfigLoadError,
-    PermissionOperationError,
     ProxyAlreadyExistsError,
     ProxyConflictError,
     ProxyNotFoundError,
@@ -28,7 +27,16 @@ from frpdeck.domain.proxy import (
     validate_http_proxy_routes,
 )
 from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult, ProxyUpdatePatch, ValidationReport
-from frpdeck.services.audit import build_actor, new_event_id, read_text_snapshot, record_audit_event, revision_dir_path, write_proxy_revision, yaml_text, utc_timestamp
+from frpdeck.services.audit import (
+    build_actor,
+    new_event_id,
+    read_text_snapshot,
+    record_audit_event,
+    revision_dir_path,
+    write_proxy_revision,
+    yaml_text,
+    utc_timestamp,
+)
 from frpdeck.services.privilege import can_read_path, can_write_file, root_owned_hint
 from frpdeck.services.renderer import render_instance
 from frpdeck.storage.dump import dump_yaml_model
@@ -79,7 +87,9 @@ class ProxyManager:
         """Import one proxy definition from a YAML file."""
         return self.add_proxy(instance_dir, load_proxy_spec_from_file(file_path.resolve()))
 
-    def update_proxy(self, instance_dir: Path, name: str, patch_spec: ProxyUpdatePatch | dict[str, object]) -> ProxyMutationResult:
+    def update_proxy(
+        self, instance_dir: Path, name: str, patch_spec: ProxyUpdatePatch | dict[str, object]
+    ) -> ProxyMutationResult:
         with instance_lock(self._lock_path(instance_dir)):
             instance = instance_dir.resolve()
             proxy_file = self._load_proxy_file(instance)
@@ -87,7 +97,11 @@ class ProxyManager:
             before_state = self._proxy_audit_state(proxy_file, proxy_name=name)
             before_text = self._proxy_snapshot_text(instance, proxy_file=proxy_file)
             try:
-                patch = patch_spec if isinstance(patch_spec, ProxyUpdatePatch) else ProxyUpdatePatch.model_validate(patch_spec)
+                patch = (
+                    patch_spec
+                    if isinstance(patch_spec, ProxyUpdatePatch)
+                    else ProxyUpdatePatch.model_validate(patch_spec)
+                )
             except ValidationError as exc:
                 raise ProxyConflictError(str(exc)) from exc
             merged_payload = self._merge_proxy_patch(current, patch)
@@ -299,10 +313,14 @@ class ProxyManager:
         fallback = proxy_file or ProxyFile()
         return read_text_snapshot(instance_dir / "proxies.yaml", fallback=fallback) or yaml_text(fallback)
 
-    def _proxy_audit_state(self, proxy_file: ProxyFile, *, proxy_name: str | None = None, fallback_proxy: ProxyConfig | None = None) -> dict[str, Any]:
+    def _proxy_audit_state(
+        self, proxy_file: ProxyFile, *, proxy_name: str | None = None, fallback_proxy: ProxyConfig | None = None
+    ) -> dict[str, Any]:
         proxy_payload = None
         if proxy_name is not None:
-            proxy_payload = next((self._serialize_proxy(proxy) for proxy in proxy_file.proxies if proxy.name == proxy_name), None)
+            proxy_payload = next(
+                (self._serialize_proxy(proxy) for proxy in proxy_file.proxies if proxy.name == proxy_name), None
+            )
         if proxy_payload is None and fallback_proxy is not None:
             proxy_payload = self._serialize_proxy(fallback_proxy)
         return {
@@ -386,7 +404,9 @@ class ProxyManager:
                 event_id=event_id,
             )
         except Exception as exc:
-            warning = f"audit log append failed: {exc}" if warning is None else f"{warning}; audit log append failed: {exc}"
+            warning = (
+                f"audit log append failed: {exc}" if warning is None else f"{warning}; audit log append failed: {exc}"
+            )
         if warning is not None:
             result.warnings.append(warning)
 

@@ -31,6 +31,8 @@ def _write_client_instance(
     node = build_client_node(instance_name=instance_name)
     dump_yaml_model(node, instance_dir / "node.yaml")
     dump_yaml_model(ProxyFile(proxies=list(proxies or [])), instance_dir / "proxies.yaml")
+
+
 def test_add_proxy_succeeds_and_rejects_duplicates(tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
     manager = ProxyManager()
@@ -175,7 +177,9 @@ def test_validate_proxy_set_accepts_http_and_https_route_variants(tmp_path: Path
 
 
 def test_add_and_update_proxy_reject_invalid_http_routes(tmp_path: Path) -> None:
-    _write_client_instance(tmp_path, proxies=[HttpProxyConfig(name="web", local_port=8080, custom_domains=["example.com"])])
+    _write_client_instance(
+        tmp_path, proxies=[HttpProxyConfig(name="web", local_port=8080, custom_domains=["example.com"])]
+    )
     manager = ProxyManager()
     before_add = (tmp_path / "proxies.yaml").read_text(encoding="utf-8")
 
@@ -214,7 +218,10 @@ def test_preview_proxy_changes_returns_summary_without_touching_rendered_dir(tmp
 def test_proxy_write_surfaces_audit_failure_as_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
 
-    monkeypatch.setattr("frpdeck.services.proxy_manager.record_audit_event", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(
+        "frpdeck.services.proxy_manager.record_audit_event",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
 
     result = ProxyManager().add_proxy(tmp_path, TcpProxyConfig(name="ssh", local_port=22, remote_port=6000))
 

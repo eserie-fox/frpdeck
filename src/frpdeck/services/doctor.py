@@ -26,14 +26,22 @@ def run_doctor(instance_dir: Path | None, node: NodeBase | None = None) -> list[
         DoctorCheck(
             "systemctl",
             systemctl_available,
-            "systemctl available in PATH" if systemctl_available else "systemctl not found; apply/restart/status will not work in this environment",
+            "systemctl available in PATH"
+            if systemctl_available
+            else "systemctl not found; apply/restart/status will not work in this environment",
         ),
-        DoctorCheck("external tools", True, "tar/curl not required; frpdeck uses Python stdlib for download and extraction"),
+        DoctorCheck(
+            "external tools", True, "tar/curl not required; frpdeck uses Python stdlib for download and extraction"
+        ),
     ]
     if instance_dir is not None:
         checks.extend(
             [
-                DoctorCheck("node.yaml", (instance_dir / "node.yaml").exists(), f"expected {(instance_dir / 'node.yaml').resolve()}"),
+                DoctorCheck(
+                    "node.yaml",
+                    (instance_dir / "node.yaml").exists(),
+                    f"expected {(instance_dir / 'node.yaml').resolve()}",
+                ),
                 DoctorCheck(
                     "state dir",
                     (instance_dir / "state").exists(),

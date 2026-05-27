@@ -7,7 +7,9 @@ from frpdeck.services.downloader import download_file
 
 
 class _FakeResponse:
-    def __init__(self, chunks: list[bytes], *, content_length: str | None = None, failure_at: int | None = None) -> None:
+    def __init__(
+        self, chunks: list[bytes], *, content_length: str | None = None, failure_at: int | None = None
+    ) -> None:
         self._chunks = chunks
         self._index = 0
         self._failure_at = failure_at

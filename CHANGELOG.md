@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
 - When `client.web_server.enable` is `false`, `frpdeck` omits the generated `[webServer]` config even though default `addr` and `port` values still exist after config merge.
 - Made `reload` fail fast with a clear error when the client web server is disabled, because `frpc reload` depends on that control endpoint.
 - Documented the client web server enable behavior and covered the default, disabled render, config merge, scaffold, and reload paths with tests.
+- Added a GitHub Actions CI workflow with separate `format-lint` and `tests` jobs backed by the `dev` extra.
+- Split quick-start usage into `QUICKSTART.md` and shortened `README.md` so new users can jump directly to first client/server workflows.
+- Kept dependency declarations on lower bounds only and removed tests that depended on unstable Typer/Click internals.
+- Ignored local `uv.lock` resolver output and added a `Makefile` with `sync`, format/lint, test, check, and clean targets.
 
 ## 1.1.3
 

@@ -40,9 +40,13 @@ def collect_status(instance_dir: Path, node: NodeBase) -> dict[str, str | None]:
 
     if node.role == Role.CLIENT:
         if not paths.binary_path(node.role).exists():
-            summary["frpc_status"] = f"frpc binary not found at {paths.binary_path(node.role)}; run apply or upgrade first"
+            summary["frpc_status"] = (
+                f"frpc binary not found at {paths.binary_path(node.role)}; run apply or upgrade first"
+            )
         elif not paths.config_path(node.role).exists():
-            summary["frpc_status"] = f"FRP runtime config not found at {paths.config_path(node.role)}; run render/apply first"
+            summary["frpc_status"] = (
+                f"FRP runtime config not found at {paths.config_path(node.role)}; run render/apply first"
+            )
         else:
             try:
                 result = run_command(

@@ -32,7 +32,9 @@ class _Recorder:
 
 def _write_client_instance(instance_dir: Path) -> None:
     dump_yaml_model(build_client_node(), instance_dir / "node.yaml")
-    dump_yaml_model(ProxyFile(proxies=[TcpProxyConfig(name="ssh", local_port=22, remote_port=6000)]), instance_dir / "proxies.yaml")
+    dump_yaml_model(
+        ProxyFile(proxies=[TcpProxyConfig(name="ssh", local_port=22, remote_port=6000)]), instance_dir / "proxies.yaml"
+    )
 
 
 def test_apply_service_runs_successful_workflow_in_order(monkeypatch, tmp_path: Path) -> None:
@@ -87,8 +89,12 @@ def test_apply_service_runs_successful_workflow_in_order(monkeypatch, tmp_path: 
         lambda rendered_unit, target_unit: calls.append("install_unit"),
     )
     monkeypatch.setattr("frpdeck.services.apply_service.daemon_reload", lambda: calls.append("daemon_reload"))
-    monkeypatch.setattr("frpdeck.services.apply_service.enable_service", lambda service_name: calls.append("enable_service"))
-    monkeypatch.setattr("frpdeck.services.apply_service.restart_service", lambda service_name: calls.append("restart_service"))
+    monkeypatch.setattr(
+        "frpdeck.services.apply_service.enable_service", lambda service_name: calls.append("enable_service")
+    )
+    monkeypatch.setattr(
+        "frpdeck.services.apply_service.restart_service", lambda service_name: calls.append("restart_service")
+    )
 
     result = ApplyService().apply_instance(tmp_path, reporter=reporter)
 

@@ -54,6 +54,7 @@ def register_resources(
         def read_proxy_runtime_status() -> str:
             """Read per-proxy runtime and render status as JSON text for the bound instance."""
             return proxy_runtime_status_resource(bound_instance_dir, status_service=resource_service)
+
         return
 
     @server.resource("frpdeck://instance/status?instance={instance_dir}")

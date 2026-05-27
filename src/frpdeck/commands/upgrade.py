@@ -9,7 +9,13 @@ import typer
 from frpdeck.commands._download_progress import CliDownloadProgressReporter
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
-from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, ConfigValidationError, DownloadError, PermissionOperationError
+from frpdeck.domain.errors import (
+    CommandExecutionError,
+    ConfigLoadError,
+    ConfigValidationError,
+    DownloadError,
+    PermissionOperationError,
+)
 from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.installer import analyze_upgrade_root_requirements, install_from_archive, install_from_release
 from frpdeck.services.release_checker import get_release
@@ -48,7 +54,9 @@ def register(app: typer.Typer) -> None:
             node_reason = unreadable_path_reason(instance_dir / "node.yaml", label="node config")
             if node_reason is not None:
                 preload_reasons.append(node_reason)
-            archive_reason = unreadable_path_reason(resolved_archive, label="archive") if resolved_archive is not None else None
+            archive_reason = (
+                unreadable_path_reason(resolved_archive, label="archive") if resolved_archive is not None else None
+            )
             if archive_reason is not None:
                 preload_reasons.append(archive_reason)
             raise_for_missing_privileges(
@@ -88,7 +96,13 @@ def register(app: typer.Typer) -> None:
                         )
                     if restart_after:
                         restart_service(node.service.service_name)
-        except (CommandExecutionError, ConfigLoadError, ConfigValidationError, DownloadError, PermissionOperationError) as exc:
+        except (
+            CommandExecutionError,
+            ConfigLoadError,
+            ConfigValidationError,
+            DownloadError,
+            PermissionOperationError,
+        ) as exc:
             typer.echo(f"ERROR: {exc}")
             raise typer.Exit(code=1) from exc
         typer.echo(f"upgraded to {version}")

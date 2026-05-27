@@ -51,9 +51,7 @@ def load_node_defaults(role: Role | str) -> dict[str, Any]:
 
     resolved_role = Role(role)
     resource_spec = (
-        CLIENT_NODE_DEFAULTS_RESOURCE_SPEC
-        if resolved_role == Role.CLIENT
-        else SERVER_NODE_DEFAULTS_RESOURCE_SPEC
+        CLIENT_NODE_DEFAULTS_RESOURCE_SPEC if resolved_role == Role.CLIENT else SERVER_NODE_DEFAULTS_RESOURCE_SPEC
     )
     return read_json_mapping(resource_spec)
 

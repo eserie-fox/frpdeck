@@ -44,17 +44,17 @@ def render_stdio_wrapper(instance_dir: Path, *, python_executable: Path, workdir
             'if [[ ! -x "$PYTHON_BIN" ]]; then',
             '  echo "frpdeck MCP wrapper error: Python interpreter is missing or not executable: $PYTHON_BIN" >&2',
             '  echo "Regenerate this wrapper from the target environment, or edit the script to activate the correct uv or virtualenv environment first." >&2',
-            '  exit 127',
-            'fi',
+            "  exit 127",
+            "fi",
             'if "$PYTHON_BIN" -m frpdeck.mcp.server --instance-dir "$INSTANCE_DIR"; then',
-            '  exit 0',
-            'else',
-            '  rc=$?',
+            "  exit 0",
+            "else",
+            "  rc=$?",
             '  echo "frpdeck MCP wrapper error: failed to start the bound stdio MCP server." >&2',
             '  echo "If this host uses uv or virtualenv, verify that the embedded Python interpreter is valid here." >&2',
             '  echo "Regenerate the wrapper from the intended environment, or edit the script to activate it before launching." >&2',
-            '  exit $rc',
-            'fi',
+            "  exit $rc",
+            "fi",
             "",
         ]
     )
@@ -137,7 +137,9 @@ def _record_wrapper_audit(
 @mcp_app.command("install-stdio-wrapper")
 def install_stdio_wrapper_command(
     ctx: typer.Context,
-    instance: Path = typer.Option(Path("."), "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"),
+    instance: Path = typer.Option(
+        Path("."), "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"
+    ),
     python_path: Path | None = typer.Option(
         None,
         "--python",
@@ -201,7 +203,9 @@ def install_stdio_wrapper_command(
 @mcp_app.command("uninstall-stdio-wrapper")
 def uninstall_stdio_wrapper_command(
     ctx: typer.Context,
-    instance: Path = typer.Option(Path("."), "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"),
+    instance: Path = typer.Option(
+        Path("."), "--instance", exists=True, file_okay=False, dir_okay=True, help="Instance directory"
+    ),
     sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Remove the bound stdio MCP wrapper script for one instance."""
@@ -269,7 +273,9 @@ def _analyze_wrapper_root_requirements(instance_dir: Path, *, uninstall: bool) -
 
     if uninstall:
         if script_path.exists() and not can_delete_path(script_path):
-            reasons.append(f"wrapper path is not removable by current user: {script_path}{root_owned_hint(script_path)}")
+            reasons.append(
+                f"wrapper path is not removable by current user: {script_path}{root_owned_hint(script_path)}"
+            )
     elif not can_write_file(script_path):
         reasons.append(f"wrapper path is not writable by current user: {script_path}{root_owned_hint(script_path)}")
 

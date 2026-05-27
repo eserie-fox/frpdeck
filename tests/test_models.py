@@ -96,9 +96,7 @@ def test_client_web_server_enable_defaults_true_and_can_be_disabled() -> None:
 
 
 def test_proxy_discriminated_union() -> None:
-    tcp = PROXY_ADAPTER.validate_python(
-        {"name": "ssh", "type": "tcp", "local_port": 22, "remote_port": 6000}
-    )
+    tcp = PROXY_ADAPTER.validate_python({"name": "ssh", "type": "tcp", "local_port": 22, "remote_port": 6000})
     http = PROXY_ADAPTER.validate_python(
         {"name": "web", "type": "http", "local_port": 8080, "custom_domains": ["example.com"]}
     )

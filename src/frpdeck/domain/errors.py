@@ -43,4 +43,3 @@ class ProxyAlreadyExistsError(FrpdeckError):
 
 class ProxyConflictError(FrpdeckError):
     """Raised when proxy state conflicts with existing configuration."""
-

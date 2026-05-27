@@ -12,7 +12,14 @@ from frpdeck.domain.client_config import AuthConfig, FrpLogConfig
 from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.domain.enums import Role
 from frpdeck.domain.paths import resolve_path_from_instance
-from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyConfig, ProxyFile, TcpProxyConfig, UdpProxyConfig
+from frpdeck.domain.proxy import (
+    HttpProxyConfig,
+    HttpsProxyConfig,
+    ProxyConfig,
+    ProxyFile,
+    TcpProxyConfig,
+    UdpProxyConfig,
+)
 from frpdeck.domain.state import ClientNodeConfig, NodeBase, ServerNodeConfig
 from frpdeck.services.privilege import can_write_directory, can_write_file, root_owned_hint
 
@@ -180,7 +187,9 @@ def _proxy_context(proxy: ProxyConfig, instance_dir: Path) -> dict[str, object]:
             "use_encryption": proxy.transport.use_encryption,
             "use_compression": proxy.transport.use_compression,
             "bandwidth_limit": proxy.transport.bandwidth_limit,
-            "bandwidth_limit_mode": proxy.transport.bandwidth_limit_mode.value if proxy.transport.bandwidth_limit_mode else None,
+            "bandwidth_limit_mode": proxy.transport.bandwidth_limit_mode.value
+            if proxy.transport.bandwidth_limit_mode
+            else None,
         },
         "instance_dir": str(instance_dir),
     }
