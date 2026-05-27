@@ -20,6 +20,8 @@ The CI workflow uses `uv`, so this equivalent setup is also supported:
 uv sync --extra dev
 ```
 
+CI installs `uv` through `astral-sh/setup-uv@v8.1.0`. This project does not commit `uv.lock`; the GitHub Actions uv cache uses `pyproject.toml` as its dependency-change signal.
+
 Runtime dependencies should keep only minimum supported versions. When a newer dependency release breaks behavior,
 update the implementation and tests for the new version instead of adding long-term upper bounds.
 
