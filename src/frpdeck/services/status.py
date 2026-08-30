@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from frpdeck.domain.state import NodeBase
-from frpdeck.domain.errors import CommandExecutionError
 from frpdeck.domain.enums import Role
+from frpdeck.domain.errors import CommandExecutionError
+from frpdeck.domain.state import NodeBase
 from frpdeck.domain.versioning import compare_versions
 from frpdeck.services.installer import read_current_version
 from frpdeck.services.runtime import run_command

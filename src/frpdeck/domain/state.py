@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -53,9 +53,9 @@ class InstallState(BaseModel):
     binary_path: str
 
     @classmethod
-    def create(cls, version: str, binary_path: Path) -> "InstallState":
+    def create(cls, version: str, binary_path: Path) -> InstallState:
         return cls(
-            installed_at=datetime.now(timezone.utc).isoformat(),
+            installed_at=datetime.now(UTC).isoformat(),
             version=version,
             binary_path=str(binary_path),
         )
@@ -67,9 +67,9 @@ class ApplyState(BaseModel):
     config_path: str
 
     @classmethod
-    def create(cls, service_name: str, config_path: Path) -> "ApplyState":
+    def create(cls, service_name: str, config_path: Path) -> ApplyState:
         return cls(
-            applied_at=datetime.now(timezone.utc).isoformat(),
+            applied_at=datetime.now(UTC).isoformat(),
             service_name=service_name,
             config_path=str(config_path),
         )

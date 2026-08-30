@@ -10,7 +10,6 @@ import typer
 from frpdeck.commands.output import emit_json_envelope
 from frpdeck.services.audit import audit_log_path, read_recent_audit_entries
 
-
 audit_app = typer.Typer(help="Read-only audit inspection", no_args_is_help=True)
 
 

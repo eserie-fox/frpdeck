@@ -75,27 +75,29 @@ def register(app: typer.Typer) -> None:
                 ),
                 invocation=invocation,
             )
-            with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
-                with instance_logging_context(instance_dir, node=node):
-                    download_reporter = CliDownloadProgressReporter(typer.echo)
-                    if resolved_archive is not None:
-                        version = install_from_archive(instance_dir, node, resolved_archive, node.binary.version)
-                    elif node.binary.local_archive is not None:
-                        source = node.binary.local_archive
-                        resolved = source if source.is_absolute() else (instance_dir / source).resolve()
-                        version = install_from_archive(instance_dir, node, resolved, node.binary.version)
-                    else:
-                        release = get_release(node.binary)
-                        version = install_from_release(
-                            instance_dir,
-                            node,
-                            release,
-                            progress=download_reporter.update,
-                            download_started=download_reporter.start,
-                            download_finished=download_reporter.finish,
-                        )
-                    if restart_after:
-                        restart_service(node.service.service_name)
+            with (
+                instance_lock(instance_dir / "state" / ".frpdeck.lock"),
+                instance_logging_context(instance_dir, node=node),
+            ):
+                download_reporter = CliDownloadProgressReporter(typer.echo)
+                if resolved_archive is not None:
+                    version = install_from_archive(instance_dir, node, resolved_archive, node.binary.version)
+                elif node.binary.local_archive is not None:
+                    source = node.binary.local_archive
+                    resolved = source if source.is_absolute() else (instance_dir / source).resolve()
+                    version = install_from_archive(instance_dir, node, resolved, node.binary.version)
+                else:
+                    release = get_release(node.binary)
+                    version = install_from_release(
+                        instance_dir,
+                        node,
+                        release,
+                        progress=download_reporter.update,
+                        download_started=download_reporter.start,
+                        download_finished=download_reporter.finish,
+                    )
+                if restart_after:
+                    restart_service(node.service.service_name)
         except (
             CommandExecutionError,
             ConfigLoadError,

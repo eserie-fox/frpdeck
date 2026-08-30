@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
 from frpdeck.domain.facade_models import FacadeResult
 from frpdeck.facade.proxy_facade import ProxyFacade
 from frpdeck.mcp.serialization import MCP_SCHEMA_VERSION, internal_error_result, resolve_instance_dir, to_jsonable
 from frpdeck.services.audit import audit_actor
-
 
 ProxyProtocol = Literal["tcp", "udp", "http", "https"]
 
@@ -112,7 +112,7 @@ def _finalize_facade_result(operation: str, instance_dir: str | Path, result: Fa
     """Ensure tool results remain JSON-serializable after wrapping."""
     try:
         return FacadeResult.model_validate(to_jsonable(result))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - MCP tools must preserve the stable result contract
         return internal_error_result(operation, instance_dir, exc)
 
 
@@ -128,7 +128,7 @@ def _safe_facade_call(
     try:
         with audit_actor(audit_source, **(audit_meta or {})):
             result = call()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - MCP tools must preserve the stable result contract
         return internal_error_result(operation, instance_dir, exc)
     return _finalize_facade_result(operation, instance_dir, result)
 
@@ -186,7 +186,7 @@ _TOOL_SPECS: tuple[ToolSpec, ...] = (
 
 
 def register_tools(
-    server: FastMCP,
+    server: MCPServer,
     facade: ProxyFacade | None = None,
     *,
     mode: str = "generic",
@@ -390,7 +390,7 @@ def _call_tool(
 def _resolve_tool_caller(spec: ToolSpec) -> Callable[..., FacadeResult]:
     caller = globals().get(spec.caller_name)
     if not callable(caller):
-        raise RuntimeError(f"invalid MCP tool caller: {spec.caller_name}")
+        raise TypeError(f"invalid MCP tool caller: {spec.caller_name}")
     return caller
 
 

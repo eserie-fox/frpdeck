@@ -7,7 +7,6 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-
 _PKG_SCHEME = "pkg://"
 
 
@@ -42,7 +41,7 @@ def read_json_mapping(spec: str | Path) -> dict[str, Any]:
 
     payload = read_json(spec)
     if not isinstance(payload, dict):
-        raise ValueError(f"JSON resource root must be an object: {spec}")
+        raise TypeError(f"JSON resource root must be an object: {spec}")
     return payload
 
 

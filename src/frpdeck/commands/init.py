@@ -8,8 +8,8 @@ import typer
 
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges
-from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.domain.enums import Role
+from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.services.scaffold import analyze_init_root_requirements, scaffold_instance
 
 

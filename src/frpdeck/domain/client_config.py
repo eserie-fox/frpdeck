@@ -45,7 +45,7 @@ class AuthConfig(BaseModel):
         return Path(value)
 
     @model_validator(mode="after")
-    def _validate_token_sources(self) -> "AuthConfig":
+    def _validate_token_sources(self) -> AuthConfig:
         if self.token and self.token_file:
             raise ValueError("auth.token and auth.token_file are mutually exclusive")
         return self

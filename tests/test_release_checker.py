@@ -4,8 +4,8 @@ from pathlib import Path
 
 from frpdeck.config.instance import load_scaffold_instance_layout
 from frpdeck.domain.enums import Role
-from frpdeck.services.release_checker import get_release
 from frpdeck.services.installer import _version_from_archive_name
+from frpdeck.services.release_checker import get_release
 from frpdeck.services.scaffold import scaffold_instance
 from tests.support import build_binary_config
 

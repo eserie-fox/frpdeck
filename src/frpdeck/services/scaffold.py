@@ -13,8 +13,8 @@ from frpdeck.config.instance import (
     load_scaffold_token_example,
 )
 from frpdeck.config.merge import config_deep_merge
-from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.domain.enums import Role
+from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.domain.proxy import ProxyFile
 from frpdeck.domain.state import NODE_CONFIG_ADAPTER
 from frpdeck.services.privilege import can_write_directory, root_owned_hint

@@ -8,7 +8,6 @@ from urllib.request import Request, urlopen
 
 from frpdeck.domain.errors import DownloadError
 
-
 DownloadProgressCallback = Callable[[int, int | None], None]
 
 _CHUNK_SIZE = 64 * 1024

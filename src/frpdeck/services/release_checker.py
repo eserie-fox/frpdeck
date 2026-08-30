@@ -11,7 +11,6 @@ from frpdeck.domain.errors import DownloadError, ReleaseNotFoundError
 from frpdeck.domain.install import BinaryConfig
 from frpdeck.domain.versioning import normalize_version
 
-
 GITHUB_LATEST_URL = "https://api.github.com/repos/fatedier/frp/releases/latest"
 GITHUB_TAG_URL_TEMPLATE = "https://api.github.com/repos/fatedier/frp/releases/tags/v{version}"
 

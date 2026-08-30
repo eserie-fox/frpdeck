@@ -1,10 +1,11 @@
-from pathlib import Path
 import json
 import logging
+from pathlib import Path
 
 import anyio
-from mcp.server.fastmcp import FastMCP
 import pytest
+from mcp.server.mcpserver import MCPServer
+from mcp.types import CallToolResult
 
 from frpdeck.domain.errors import ConfigLoadError
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig, UdpProxyConfig
@@ -50,30 +51,32 @@ def _write_client_instance(instance_dir: Path, *, node_overrides: dict[str, obje
     )
 
 
-def _list_tools(server: FastMCP) -> dict[str, object]:
+def _list_tools(server: MCPServer) -> dict[str, object]:
     async def run() -> dict[str, object]:
         return {tool.name: tool for tool in await server.list_tools()}
 
     return anyio.run(run)
 
 
-def _list_resources(server: FastMCP) -> list[object]:
+def _list_resources(server: MCPServer) -> list[object]:
     async def run() -> list[object]:
         return await server.list_resources()
 
     return anyio.run(run)
 
 
-def _call_tool(server: FastMCP, name: str, arguments: dict[str, object]) -> dict[str, object]:
+def _call_tool(server: MCPServer, name: str, arguments: dict[str, object]) -> dict[str, object]:
     async def run() -> dict[str, object]:
-        _, structured = await server.call_tool(name, arguments)
+        result = await server.call_tool(name, arguments)
+        assert isinstance(result, CallToolResult)
+        structured = result.structured_content
         assert isinstance(structured, dict)
         return structured
 
     return anyio.run(run)
 
 
-def _read_resource(server: FastMCP, uri: str) -> list[object]:
+def _read_resource(server: MCPServer, uri: str) -> list[object]:
     async def run() -> list[object]:
         return await server.read_resource(uri)
 
@@ -143,16 +146,7 @@ def test_mcp_import_proxy_file_tool_imports_mapping(tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
     import_file = tmp_path / "web.yaml"
     import_file.write_text(
-        "\n".join(
-            [
-                "name: imported-web",
-                "type: http",
-                "local_port: 8080",
-                "custom_domains:",
-                "  - imported.example.com",
-            ]
-        )
-        + "\n",
+        "name: imported-web\ntype: http\nlocal_port: 8080\ncustom_domains:\n  - imported.example.com\n",
         encoding="utf-8",
     )
 
@@ -182,10 +176,10 @@ def test_proxy_runtime_status_resource_returns_per_proxy_status(tmp_path: Path) 
     assert by_name["dns"]["included_in_current_render"] is False
 
 
-def test_create_mcp_server_returns_fastmcp_instance() -> None:
+def test_create_mcp_server_returns_mcpserver_instance() -> None:
     server = create_mcp_server()
 
-    assert isinstance(server, FastMCP)
+    assert isinstance(server, MCPServer)
 
 
 def test_server_info_tool_is_callable_and_jsonable(tmp_path: Path) -> None:
@@ -203,10 +197,10 @@ def test_server_info_tool_is_callable_and_jsonable(tmp_path: Path) -> None:
 def test_generic_mode_tool_schema_keeps_instance_dir() -> None:
     tools = _list_tools(create_mcp_server())
 
-    assert "instance_dir" in tools["list_proxies"].inputSchema["properties"]
-    assert "instance_dir" in tools["add_proxy"].inputSchema["properties"]
-    assert "instance_dir" in tools["import_proxy_file"].inputSchema["properties"]
-    assert tools["add_proxy"].inputSchema["properties"]["protocol"]["enum"] == ["tcp", "udp", "http", "https"]
+    assert "instance_dir" in tools["list_proxies"].input_schema["properties"]
+    assert "instance_dir" in tools["add_proxy"].input_schema["properties"]
+    assert "instance_dir" in tools["import_proxy_file"].input_schema["properties"]
+    assert tools["add_proxy"].input_schema["properties"]["protocol"]["enum"] == ["tcp", "udp", "http", "https"]
     assert "apply_proxy_changes" not in tools
     assert "validate_proxy_set" not in tools
 
@@ -214,9 +208,9 @@ def test_generic_mode_tool_schema_keeps_instance_dir() -> None:
 def test_bound_mode_tool_schema_omits_instance_dir() -> None:
     tools = _list_tools(create_mcp_server(Path(".")))
 
-    assert "instance_dir" not in tools["list_proxies"].inputSchema.get("properties", {})
-    assert "instance_dir" not in tools["add_proxy"].inputSchema.get("properties", {})
-    assert "instance_dir" not in tools["import_proxy_file"].inputSchema.get("properties", {})
+    assert "instance_dir" not in tools["list_proxies"].input_schema.get("properties", {})
+    assert "instance_dir" not in tools["add_proxy"].input_schema.get("properties", {})
+    assert "instance_dir" not in tools["import_proxy_file"].input_schema.get("properties", {})
 
 
 def test_bound_and_generic_modes_expose_same_tool_names_with_expected_instance_dir_difference() -> None:
@@ -225,8 +219,8 @@ def test_bound_and_generic_modes_expose_same_tool_names_with_expected_instance_d
 
     assert set(generic_tools) == set(bound_tools)
     for name in generic_tools:
-        generic_properties = generic_tools[name].inputSchema.get("properties", {})
-        bound_properties = bound_tools[name].inputSchema.get("properties", {})
+        generic_properties = generic_tools[name].input_schema.get("properties", {})
+        bound_properties = bound_tools[name].input_schema.get("properties", {})
         if name == "server_info":
             assert "instance_dir" not in generic_properties
             assert "instance_dir" not in bound_properties
@@ -268,12 +262,12 @@ def test_mcp_tool_unknown_exception_returns_stable_error(monkeypatch, tmp_path: 
 
 def test_mcp_main_accepts_instance_dir_without_stdout(monkeypatch, tmp_path: Path, capsys) -> None:
     _write_client_instance(tmp_path)
-    calls: list[FastMCP] = []
+    calls: list[MCPServer] = []
 
-    def fake_run(self: FastMCP) -> None:
+    def fake_run(self: MCPServer) -> None:
         calls.append(self)
 
-    monkeypatch.setattr("frpdeck.mcp.server.FastMCP.run", fake_run)
+    monkeypatch.setattr("frpdeck.mcp.server.MCPServer.run", fake_run)
 
     main(["--instance-dir", str(tmp_path)])
 
@@ -293,13 +287,13 @@ def test_mcp_main_uses_instance_logging_without_stdout(monkeypatch, tmp_path: Pa
             }
         },
     )
-    calls: list[FastMCP] = []
+    calls: list[MCPServer] = []
 
-    def fake_run(self: FastMCP) -> None:
+    def fake_run(self: MCPServer) -> None:
         logging.getLogger("frpdeck.mcp").info("bound instance logging active")
         calls.append(self)
 
-    monkeypatch.setattr("frpdeck.mcp.server.FastMCP.run", fake_run)
+    monkeypatch.setattr("frpdeck.mcp.server.MCPServer.run", fake_run)
 
     main(["--instance-dir", str(tmp_path)])
 
@@ -310,28 +304,23 @@ def test_mcp_main_uses_instance_logging_without_stdout(monkeypatch, tmp_path: Pa
 
 
 def test_mcp_main_bound_mode_fails_fast_on_invalid_instance_logging(monkeypatch, tmp_path: Path) -> None:
-    calls: list[FastMCP] = []
+    calls: list[MCPServer] = []
 
-    def fake_run(self: FastMCP) -> None:
+    def fake_run(self: MCPServer) -> None:
         calls.append(self)
 
-    monkeypatch.setattr("frpdeck.mcp.server.FastMCP.run", fake_run)
+    monkeypatch.setattr("frpdeck.mcp.server.MCPServer.run", fake_run)
     (tmp_path / "node.yaml").write_text(
-        "\n".join(
-            [
-                "instance_name: demo-client",
-                "role: client",
-                "service:",
-                "  service_name: demo-frpc",
-                "frpdeck_logging:",
-                "  level: WARN",
-                "client:",
-                "  server_addr: example.com",
-                "  auth:",
-                "    token: secret",
-            ]
-        )
-        + "\n",
+        "instance_name: demo-client\n"
+        "role: client\n"
+        "service:\n"
+        "  service_name: demo-frpc\n"
+        "frpdeck_logging:\n"
+        "  level: WARN\n"
+        "client:\n"
+        "  server_addr: example.com\n"
+        "  auth:\n"
+        "    token: secret\n",
         encoding="utf-8",
     )
 

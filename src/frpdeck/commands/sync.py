@@ -44,9 +44,11 @@ def register(app: typer.Typer) -> None:
                 reasons=analyze_sync_root_requirements(instance_dir, node),
                 invocation=invocation,
             )
-            with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
-                with instance_logging_context(instance_dir, node=node):
-                    config_path = sync_rendered_to_runtime(instance_dir, node)
+            with (
+                instance_lock(instance_dir / "state" / ".frpdeck.lock"),
+                instance_logging_context(instance_dir, node=node),
+            ):
+                config_path = sync_rendered_to_runtime(instance_dir, node)
         except typer.Exit:
             raise
         except PermissionOperationError as exc:

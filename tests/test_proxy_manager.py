@@ -1,5 +1,5 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 import pytest
 
@@ -65,16 +65,7 @@ def test_import_proxy_file_adds_one_proxy_mapping(tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
     import_file = tmp_path / "web.yaml"
     import_file.write_text(
-        "\n".join(
-            [
-                "name: imported-web",
-                "type: https",
-                "local_port: 8443",
-                "custom_domains:",
-                "  - secure.example.com",
-            ]
-        )
-        + "\n",
+        "name: imported-web\ntype: https\nlocal_port: 8443\ncustom_domains:\n  - secure.example.com\n",
         encoding="utf-8",
     )
 

@@ -9,8 +9,8 @@ from typing import Protocol
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import FrpdeckError
 from frpdeck.domain.paths import resolve_path_from_instance
-from frpdeck.domain.state import ApplyState, NodeBase
 from frpdeck.domain.proxy import ProxyFile
+from frpdeck.domain.state import ApplyState, NodeBase
 from frpdeck.services.installer import ensure_binary_installed, read_current_version, sync_rendered_to_runtime
 from frpdeck.services.privilege import can_replace_directory, can_write_directory, can_write_file, root_owned_hint
 from frpdeck.services.renderer import render_instance
@@ -18,7 +18,6 @@ from frpdeck.services.systemd_manager import daemon_reload, enable_service, inst
 from frpdeck.services.verifier import validate_instance
 from frpdeck.storage.dump import dump_json_data
 from frpdeck.storage.load import load_node_config, load_proxy_file
-
 
 LOAD_CONFIG_STEP = "loading instance configuration"
 VALIDATE_STEP = "validating instance configuration"

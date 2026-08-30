@@ -10,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from frpdeck.domain.enums import FrpdeckLogLevel
 
-
 LoggingStream = Literal["stdout", "stderr", "none"]
 
 _LOG_LEVEL_TO_STDLIB: dict[FrpdeckLogLevel, int] = {

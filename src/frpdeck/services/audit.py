@@ -7,24 +7,24 @@ import json
 import os
 import socket
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import yaml
 from pydantic import BaseModel
 
-
-_AUDIT_ACTOR_CONTEXT: ContextVar[dict[str, Any]] = ContextVar("frpdeck_audit_actor_context", default={})
+_AUDIT_ACTOR_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar("frpdeck_audit_actor_context", default=None)
 
 
 def utc_timestamp() -> str:
     """Return an ISO 8601 UTC timestamp for audit events."""
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def new_event_id() -> str:
@@ -35,7 +35,7 @@ def new_event_id() -> str:
 @contextmanager
 def audit_actor(source: str, **extra: Any) -> Iterator[None]:
     """Temporarily set audit actor context for one call chain."""
-    current = dict(_AUDIT_ACTOR_CONTEXT.get())
+    current = dict(_AUDIT_ACTOR_CONTEXT.get() or {})
     current.update({"source": source, **extra})
     token = _AUDIT_ACTOR_CONTEXT.set(current)
     try:
@@ -46,15 +46,15 @@ def audit_actor(source: str, **extra: Any) -> Iterator[None]:
 
 def build_actor(source: str | None = None, **extra: Any) -> dict[str, Any]:
     """Build stable actor metadata for audit records."""
-    payload = dict(_AUDIT_ACTOR_CONTEXT.get())
+    payload = dict(_AUDIT_ACTOR_CONTEXT.get() or {})
     payload.update(extra)
     try:
         user = getpass.getuser()
-    except Exception:
+    except Exception:  # noqa: BLE001 - actor metadata collection is best-effort
         user = None
     try:
         hostname = socket.gethostname()
-    except Exception:
+    except Exception:  # noqa: BLE001 - actor metadata collection is best-effort
         hostname = None
     actor = {
         "source": source or payload.pop("source", "cli"),

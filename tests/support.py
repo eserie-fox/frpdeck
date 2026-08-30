@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from frpdeck.config.instance import load_node_defaults, validate_node_mapping
 from frpdeck.config.merge import config_deep_merge

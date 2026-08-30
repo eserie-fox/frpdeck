@@ -5,19 +5,14 @@ from frpdeck.storage.load import load_node_config, load_proxy_file
 
 def test_load_node_config_merges_role_defaults_from_package(tmp_path: Path) -> None:
     (tmp_path / "node.yaml").write_text(
-        "\n".join(
-            [
-                "instance_name: demo-client",
-                "role: client",
-                "service:",
-                "  service_name: demo-frpc",
-                "client:",
-                "  server_addr: example.com",
-                "  auth:",
-                "    token: secret",
-            ]
-        )
-        + "\n",
+        "instance_name: demo-client\n"
+        "role: client\n"
+        "service:\n"
+        "  service_name: demo-frpc\n"
+        "client:\n"
+        "  server_addr: example.com\n"
+        "  auth:\n"
+        "    token: secret\n",
         encoding="utf-8",
     )
 

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from frpdeck.logging.daily_symlink import instance_logging_context
-from frpdeck.mcp.serialization import dump_json, resource_error_payload, resolve_instance_dir
+from frpdeck.mcp.serialization import dump_json, resolve_instance_dir, resource_error_payload
 from frpdeck.services.status_service import StatusService
 
 
@@ -17,7 +17,7 @@ def instance_status_resource(instance_dir: str | Path, *, status_service: Status
     try:
         with instance_logging_context(resolved_instance):
             return dump_json(service.get_instance_status(resolved_instance))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - resources return a stable JSON error payload
         return dump_json(resource_error_payload("instance_status", instance_dir, exc))
 
 
@@ -27,12 +27,12 @@ def proxy_runtime_status_resource(instance_dir: str | Path, *, status_service: S
     try:
         with instance_logging_context(resolved_instance):
             return dump_json(service.get_proxy_runtime_status(resolved_instance))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - resources return a stable JSON error payload
         return dump_json(resource_error_payload("proxy_runtime_status", instance_dir, exc))
 
 
 def register_resources(
-    server: FastMCP,
+    server: MCPServer,
     status_service: StatusService | None = None,
     *,
     mode: str = "generic",

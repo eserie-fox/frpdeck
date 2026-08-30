@@ -26,7 +26,6 @@ from frpdeck.commands import (
 from frpdeck.logging.daily_symlink import configure_default_logging
 from frpdeck.version import __version__
 
-
 app = typer.Typer(
     help="Structured FRP deployment and maintenance CLI",
     invoke_without_command=True,

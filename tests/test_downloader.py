@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Self
 
 import pytest
 
@@ -17,7 +18,7 @@ class _FakeResponse:
         if content_length is not None:
             self.headers["Content-Length"] = content_length
 
-    def __enter__(self) -> "_FakeResponse":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
