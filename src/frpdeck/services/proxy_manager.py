@@ -130,57 +130,27 @@ class ProxyManager:
             )
             return result
 
-    def remove_proxy(self, instance_dir: Path, name: str, soft: bool = True) -> ProxyMutationResult:
+    def remove_proxy(self, instance_dir: Path, name: str) -> ProxyMutationResult:
         with instance_lock(self._lock_path(instance_dir)):
             instance = instance_dir.resolve()
             proxy_file = self._load_proxy_file(instance)
-            index, current = self._find_proxy_with_index(proxy_file, name)
+            index, _ = self._find_proxy_with_index(proxy_file, name)
             before_state = self._proxy_audit_state(proxy_file, proxy_name=name)
             before_text = self._proxy_snapshot_text(instance, proxy_file=proxy_file)
-            if soft:
-                if current.enabled:
-                    updated = current.model_copy(update={"enabled": False})
-                    proxy_file.proxies[index] = updated
-                    self._write_proxy_file(instance, proxy_file)
-                    result = ProxyMutationResult(
-                        operation="remove",
-                        changed=True,
-                        proxy=updated,
-                        removed_name=name,
-                        message=f"proxy '{name}' disabled in proxies.yaml; apply required",
-                    )
-                    self._attach_proxy_audit(
-                        instance,
-                        operation="proxy_remove",
-                        target={"proxy_name": name, "remove_mode": "soft"},
-                        before=before_state,
-                        after=self._proxy_audit_state(proxy_file, proxy_name=name),
-                        before_yaml=before_text,
-                        after_yaml=self._proxy_snapshot_text(instance),
-                        result=result,
-                    )
-                    return result
-                return ProxyMutationResult(
-                    operation="remove",
-                    changed=False,
-                    proxy=current,
-                    removed_name=name,
-                    message=f"proxy '{name}' already disabled; apply may still be required",
-                )
             del proxy_file.proxies[index]
             self._write_proxy_file(instance, proxy_file)
             result = ProxyMutationResult(
                 operation="remove",
                 changed=True,
                 removed_name=name,
-                message=f"proxy '{name}' deleted from proxies.yaml; apply required",
+                message=f"proxy '{name}' permanently removed from proxies.yaml; apply required",
             )
             self._attach_proxy_audit(
                 instance,
                 operation="proxy_remove",
-                target={"proxy_name": name, "remove_mode": "hard"},
+                target={"proxy_name": name},
                 before=before_state,
-                after=self._proxy_audit_state(proxy_file, proxy_name=name, fallback_proxy=None),
+                after=self._proxy_audit_state(proxy_file, proxy_name=name),
                 before_yaml=before_text,
                 after_yaml=self._proxy_snapshot_text(instance),
                 result=result,
@@ -313,16 +283,12 @@ class ProxyManager:
         fallback = proxy_file or ProxyFile()
         return read_text_snapshot(instance_dir / "proxies.yaml", fallback=fallback) or yaml_text(fallback)
 
-    def _proxy_audit_state(
-        self, proxy_file: ProxyFile, *, proxy_name: str | None = None, fallback_proxy: ProxyConfig | None = None
-    ) -> dict[str, Any]:
+    def _proxy_audit_state(self, proxy_file: ProxyFile, *, proxy_name: str | None = None) -> dict[str, Any]:
         proxy_payload = None
         if proxy_name is not None:
             proxy_payload = next(
                 (self._serialize_proxy(proxy) for proxy in proxy_file.proxies if proxy.name == proxy_name), None
             )
-        if proxy_payload is None and fallback_proxy is not None:
-            proxy_payload = self._serialize_proxy(fallback_proxy)
         return {
             "proxy_count": len(proxy_file.proxies),
             "proxy_names": [proxy.name for proxy in proxy_file.proxies],

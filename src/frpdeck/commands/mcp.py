@@ -9,22 +9,28 @@ from typing import Any
 
 import typer
 
+from frpdeck.commands._help import INTEGRATIONS_AND_INSPECTION
 from frpdeck.commands._invocation import build_command_invocation
-from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges
-from frpdeck.domain.errors import PermissionOperationError
+from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
+from frpdeck.commands.output import echo_error, echo_warning
+from frpdeck.domain.errors import FrpdeckError, PermissionOperationError
 from frpdeck.services.audit import build_actor, record_audit_event
 from frpdeck.services.privilege import can_delete_path, can_write_file, root_owned_hint
 from frpdeck.storage.file_lock import instance_lock
 from frpdeck.storage.load import load_node_config
 
 WRAPPER_FILENAME = "start-mcp-stdio.sh"
-DEFAULT_SSH_HOST = "grape_networking"
 
 mcp_app = typer.Typer(help="MCP stdio helper commands", no_args_is_help=True)
 
 
 def register(app: typer.Typer) -> None:
-    app.add_typer(mcp_app, name="mcp")
+    app.add_typer(
+        mcp_app,
+        name="mcp",
+        help="Manage MCP stdio integration.",
+        rich_help_panel=INTEGRATIONS_AND_INSPECTION,
+    )
 
 
 def render_stdio_wrapper(instance_dir: Path, *, python_executable: Path, workdir: Path) -> str:
@@ -59,14 +65,31 @@ def render_stdio_wrapper(instance_dir: Path, *, python_executable: Path, workdir
     )
 
 
-def build_claude_stdio_example(script_path: Path, *, ssh_host: str) -> str:
-    """Build a concise Claude Code stdio configuration example."""
+def build_local_stdio_example(script_path: Path) -> str:
+    """Build a concise local Claude Code stdio configuration example."""
     return "\n".join(
         [
-            "Claude Code example:",
+            "Local MCP stdio example:",
             "",
             "claude mcp add --scope user --transport stdio frpdeck -- \\",
-            f"  ssh {ssh_host} {script_path}",
+            f"  {shlex.quote(str(script_path.resolve()))}",
+        ]
+    )
+
+
+def build_remote_stdio_example(script_path: Path, *, ssh_host: str) -> str:
+    """Build the optional remote SSH Claude Code stdio example."""
+    ssh_command = f"ssh {shlex.quote(ssh_host)} {shlex.quote(str(script_path.resolve()))}"
+    return "\n".join(
+        [
+            "Remote SSH MCP example:",
+            "",
+            "claude mcp add --scope user --transport stdio frpdeck -- \\",
+            f"  {ssh_command}",
+            "",
+            f"Manually verify first: {ssh_command}",
+            "Enable SSH BatchMode only after key-based authentication and host-key trust are working.",
+            "Verify that the wrapper's embedded Python interpreter and virtual environment are available remotely.",
         ]
     )
 
@@ -78,9 +101,6 @@ def build_install_summary(script_path: Path, *, instance_dir: Path, python_execu
             f"Wrapper path: {script_path}",
             f"Bound instance: {instance_dir}",
             f"Python: {python_executable}",
-            "Please manually verify the SSH command first before enabling BatchMode yes.",
-            "If this wrapper fails remotely, verify that the embedded Python interpreter is valid in that environment.",
-            "For uv or virtualenv-managed setups, regenerate the wrapper from the intended environment or activate it before launching.",
         ]
     )
 
@@ -148,7 +168,11 @@ def install_stdio_wrapper_command(
         resolve_path=True,
         help="Python interpreter to embed in the wrapper script. Defaults to the current frpdeck interpreter.",
     ),
-    ssh_host: str = typer.Option(DEFAULT_SSH_HOST, "--ssh-host", help="Host shown in the Claude Code example command"),
+    ssh_host: str | None = typer.Option(
+        None,
+        "--ssh-host",
+        help="Also show remote SSH MCP examples for HOST.",
+    ),
     sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
     """Install or update a bound stdio MCP wrapper script for one instance."""
@@ -170,11 +194,16 @@ def install_stdio_wrapper_command(
             invocation=invocation,
         ):
             return
+        reasons = _analyze_wrapper_root_requirements(instance_dir, uninstall=False)
+        node_reason = unreadable_path_reason(instance_dir / "node.yaml", label="node config")
+        if node_reason is not None:
+            reasons.append(node_reason)
         raise_for_missing_privileges(
             operation="mcp install-stdio-wrapper",
-            reasons=_analyze_wrapper_root_requirements(instance_dir, uninstall=False),
+            reasons=reasons,
             invocation=invocation,
         )
+        load_node_config(instance_dir)
         with instance_lock(instance_dir / "state" / ".frpdeck.lock"):
             before = _wrapper_state(script_path, instance_dir=instance_dir)
             content = render_stdio_wrapper(instance_dir, python_executable=python_executable, workdir=workdir)
@@ -188,15 +217,17 @@ def install_stdio_wrapper_command(
                 after=after,
                 result={"ok": True, "error_code": None, "errors": [], "warnings": []},
             )
-    except PermissionOperationError as exc:
-        typer.echo(f"ERROR: {exc}")
+    except (FrpdeckError, OSError, UnicodeError) as exc:
+        echo_error(f"MCP stdio wrapper installation failed: {exc}")
         raise typer.Exit(code=1) from exc
 
     typer.echo(f"{'Updated' if before['exists'] else 'Installed'} stdio wrapper.")
     typer.echo(build_install_summary(script_path, instance_dir=instance_dir, python_executable=python_executable))
-    typer.echo(build_claude_stdio_example(script_path, ssh_host=ssh_host))
+    typer.echo(build_local_stdio_example(script_path))
+    if ssh_host is not None:
+        typer.echo(build_remote_stdio_example(script_path, ssh_host=ssh_host))
     if warning is not None:
-        typer.echo(f"WARNING: {warning}")
+        echo_warning(warning)
 
 
 @mcp_app.command("uninstall-stdio-wrapper")
@@ -236,7 +267,7 @@ def uninstall_stdio_wrapper_command(
                 )
                 typer.echo(f"Stdio wrapper already absent: {script_path}")
                 if warning is not None:
-                    typer.echo(f"WARNING: {warning}")
+                    echo_warning(warning)
                 return
             _remove_wrapper_script(script_path)
             warning = _record_wrapper_audit(
@@ -247,12 +278,12 @@ def uninstall_stdio_wrapper_command(
                 after=_wrapper_state(script_path, instance_dir=instance_dir),
                 result={"ok": True, "error_code": None, "errors": [], "warnings": []},
             )
-    except PermissionOperationError as exc:
-        typer.echo(f"ERROR: {exc}")
+    except (FrpdeckError, OSError, UnicodeError) as exc:
+        echo_error(f"MCP stdio wrapper removal failed: {exc}")
         raise typer.Exit(code=1) from exc
     typer.echo(f"Removed stdio wrapper: {script_path}")
     if warning is not None:
-        typer.echo(f"WARNING: {warning}")
+        echo_warning(warning)
 
 
 def _instance_name(instance_dir: Path) -> str | None:

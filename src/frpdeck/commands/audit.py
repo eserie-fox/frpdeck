@@ -7,14 +7,20 @@ from typing import Any
 
 import typer
 
-from frpdeck.commands.output import emit_json_envelope
+from frpdeck.commands._help import INTEGRATIONS_AND_INSPECTION
+from frpdeck.commands.output import echo_error, emit_json_envelope
 from frpdeck.services.audit import audit_log_path, read_recent_audit_entries
 
 audit_app = typer.Typer(help="Read-only audit inspection", no_args_is_help=True)
 
 
 def register(app: typer.Typer) -> None:
-    app.add_typer(audit_app, name="audit")
+    app.add_typer(
+        audit_app,
+        name="audit",
+        help="Inspect write-audit history.",
+        rich_help_panel=INTEGRATIONS_AND_INSPECTION,
+    )
 
 
 @audit_app.command("recent")
@@ -25,7 +31,22 @@ def recent_command(
 ) -> None:
     """Show the most recent write audit entries for one instance."""
     instance_dir = instance.resolve()
-    entries = read_recent_audit_entries(instance_dir, limit=limit)
+    try:
+        entries = read_recent_audit_entries(instance_dir, limit=limit)
+    except (OSError, UnicodeError, ValueError) as exc:
+        message = f"failed to read audit history: {exc}"
+        if json_output:
+            emit_json_envelope(
+                command="audit recent",
+                instance=instance_dir,
+                ok=False,
+                data=None,
+                errors=[message],
+                warnings=[],
+            )
+        else:
+            echo_error(message)
+        raise typer.Exit(code=1) from exc
 
     if json_output:
         emit_json_envelope(
@@ -63,10 +84,7 @@ def _format_entry(entry: dict[str, Any]) -> str:
 
 def _target_summary(target: dict[str, Any]) -> str:
     if "proxy_name" in target:
-        suffix = ""
-        if "remove_mode" in target:
-            suffix = f" mode={target['remove_mode']}"
-        return f"proxy={target['proxy_name']}{suffix}"
+        return f"proxy={target['proxy_name']}"
     if "wrapper_path" in target:
         return f"wrapper={Path(str(target['wrapper_path'])).name}"
     if "reload_requested" in target:

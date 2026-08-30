@@ -15,6 +15,16 @@ from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyConfig,
 from frpdeck.domain.proxy_management import PreviewReport, ProxyMutationResult
 
 
+def echo_error(message: str) -> None:
+    """Write one concise operator-facing error to stderr."""
+    typer.echo(f"ERROR: {message}", err=True)
+
+
+def echo_warning(message: str) -> None:
+    """Write one operator-facing warning to stderr."""
+    typer.echo(f"WARNING: {message}", err=True)
+
+
 def emit_json_envelope(
     *,
     command: str,

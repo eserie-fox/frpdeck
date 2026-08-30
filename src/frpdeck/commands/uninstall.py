@@ -2,32 +2,30 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import typer
 
+from frpdeck.commands._help import MAINTENANCE_AND_DIAGNOSTICS
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
-from frpdeck.domain.errors import (
-    CommandExecutionError,
-    ConfigLoadError,
-    ConfigValidationError,
-    PermissionOperationError,
-)
+from frpdeck.commands.output import echo_error, echo_warning
+from frpdeck.domain.errors import FrpdeckError, PermissionOperationError
 from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.uninstall import UninstallReport, analyze_uninstall_root_requirements, uninstall_instance
 from frpdeck.storage.load import load_node_config
 
 
 def register(app: typer.Typer) -> None:
-    @app.command("uninstall")
+    @app.command("uninstall", rich_help_panel=MAINTENANCE_AND_DIAGNOSTICS)
     def uninstall_command(
         ctx: typer.Context,
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
         purge: bool = typer.Option(False, "--purge", help="Delete the entire instance directory after uninstall"),
         sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
     ) -> None:
-        """Remove installed artifacts for an instance."""
+        """Remove managed FRP and systemd artifacts."""
         instance_dir = instance.resolve()
         invocation = build_command_invocation(ctx, overrides={"instance": instance_dir})
         try:
@@ -52,10 +50,10 @@ def register(app: typer.Typer) -> None:
             with instance_logging_context(instance_dir, node=node):
                 report = uninstall_instance(instance_dir, purge=purge)
         except PermissionOperationError as exc:
-            typer.echo(f"ERROR: {exc}")
+            echo_error(str(exc))
             raise typer.Exit(code=1) from exc
-        except (ConfigLoadError, ConfigValidationError, CommandExecutionError) as exc:
-            typer.echo(f"ERROR: uninstall failed: {exc}")
+        except (FrpdeckError, OSError, UnicodeError) as exc:
+            echo_error(f"uninstall failed: {exc}")
             raise typer.Exit(code=1) from exc
         _emit_report(instance_dir, purge, report)
 
@@ -90,7 +88,9 @@ def _emit_report(instance_dir: Path, purge: bool, report: UninstallReport) -> No
                 typer.echo(f"- {path}")
         typer.echo("System installation artifacts have been removed.")
         typer.echo(f"Instance configuration is still present in {instance_dir}.")
-        typer.echo(f"If you no longer need it, you can remove it manually with: rm -rf {instance_dir}")
+        purge_command = shlex.join(["frpdeck", "uninstall", "--instance", str(instance_dir), "--purge"])
+        typer.echo(f"To remove it too, run: {purge_command}")
+        typer.echo("Add --sudo if the purge requires elevated privileges.")
 
     for warning in report.warnings:
-        typer.echo(f"WARNING: {warning}")
+        echo_warning(warning)

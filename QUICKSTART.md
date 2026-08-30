@@ -38,11 +38,9 @@ printf 'replace-me\n' > ./my-client/secrets/token.txt
 
 Replace `PLEASE_FILL_SERVER_ADDR`, token placeholders, and sample proxy domains before applying.
 
-Validate, render, and apply:
+Deploy the edited desired state:
 
 ```bash
-frpdeck validate --instance ./my-client
-frpdeck render --instance ./my-client
 frpdeck apply --instance ./my-client --sudo
 ```
 
@@ -82,21 +80,44 @@ ${EDITOR:-vi} ./my-server/node.yaml
 
 If you need FRP vhost routing, explicitly set `server.vhost_http_port`, `server.vhost_https_port`, and/or `server.subdomain_host`.
 
-Validate, render, and apply:
+Deploy the edited desired state, then inspect it:
 
 ```bash
-frpdeck validate --instance ./my-server
-frpdeck render --instance ./my-server
 frpdeck apply --instance ./my-server --sudo
+frpdeck status --instance ./my-server
 ```
 
-## Common Command Order
+## Normal Workflow
 
-- `validate` checks source config and does not write generated files.
-- `render` writes generated files under `rendered/`.
-- `sync` mirrors rendered files into `runtime/config` without restarting.
-- `apply` runs the full local workflow: validate, render, sync, install or upgrade the binary, install the systemd unit, and restart the service.
+For both client and server instances, the normal path is:
+
+```text
+init → edit configuration and secrets → apply → status
+```
+
+`apply` includes validation and rendering, so separate preflight and render commands are not required for a normal deployment.
+
+## Optional Preflight and Staged Deployment
+
+- `validate` is an optional read-only preflight; it checks source config and changes nothing.
+- `render` only updates generated files under `rendered/`.
+- `sync` only mirrors the current rendered snapshot into `runtime/config`; it does not validate, render, reload, or restart.
+- `reload` is client-only and asks the frpc control/web server endpoint to reload current `runtime/config` without restarting systemd.
+- `restart` restarts the systemd service using current runtime config.
+- `apply` remains the full deployment command when source changes need to reach the running service.
 - `status` reports the configured systemd service and rendered proxy state.
+
+To preserve a proxy definition while turning it off, use `frpdeck proxy disable NAME`. To permanently delete the definition from `proxies.yaml`, use `frpdeck proxy remove NAME`.
+
+Diagnostic modes:
+
+```bash
+frpdeck doctor
+frpdeck doctor --instance ./my-client
+frpdeck doctor --system-only
+```
+
+`check-update` and `upgrade` operate on the managed FRP binary, not the frpdeck Python package.
 
 All mutating commands support `--sudo`. When a non-root user passes `--sudo`, `frpdeck` re-execs the full command via sudo before loading instance config or touching managed files.
 

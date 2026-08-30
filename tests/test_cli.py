@@ -1,5 +1,7 @@
 import json
 import logging
+import re
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -90,6 +92,21 @@ def _patch_privilege_fail(monkeypatch, module: str, message: str) -> None:
     )
 
 
+def _help_panel(output: str, title: str, next_title: str | None = None) -> str:
+    start = output.index(title)
+    end = len(output) if next_title is None else output.index(next_title, start + len(title))
+    return output[start:end]
+
+
+def _assert_help_command_order(panel: str, commands: list[str]) -> None:
+    positions = []
+    for command in commands:
+        match = re.search(rf"(?m)^\W*{re.escape(command)}\s", panel)
+        assert match is not None, f"{command!r} not found in help panel"
+        positions.append(match.start())
+    assert positions == sorted(positions)
+
+
 def test_init_client_creates_base_files(tmp_path: Path) -> None:
     result = RUNNER.invoke(app, ["init", "client", "demo-node", "--directory", str(tmp_path)])
 
@@ -175,34 +192,72 @@ def test_validate_reports_placeholder_errors() -> None:
     result = RUNNER.invoke(app, ["validate", "--instance", str(instance)])
 
     assert result.exit_code == 1
-    assert "client.server_addr still uses a placeholder value" in result.stdout
+    assert "client.server_addr still uses a placeholder value" in result.stderr
+    assert "ERROR:" not in result.stdout
 
 
 def test_version_option_returns_success() -> None:
     result = RUNNER.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == __version__
+    assert result.stdout.strip() == "1.2.0"
+    assert __version__ == "1.2.0"
 
 
-def test_root_command_without_args_shows_help() -> None:
-    result = RUNNER.invoke(app, [])
+def test_root_help_uses_workflow_panels_in_public_order() -> None:
+    result = RUNNER.invoke(app, ["--help"])
 
-    assert "Usage:" in result.stdout
-    assert "apply" in result.stdout
-    assert "sync" in result.stdout
-    assert "status" in result.stdout
+    assert result.exit_code == 0, result.stdout
+    panel_titles = [
+        "Common workflow",
+        "Preflight and advanced deployment",
+        "Runtime control",
+        "Maintenance and diagnostics",
+        "Integrations and inspection",
+    ]
+    assert [result.stdout.index(title) for title in panel_titles] == sorted(
+        result.stdout.index(title) for title in panel_titles
+    )
+    common = _help_panel(result.stdout, panel_titles[0], panel_titles[1])
+    _assert_help_command_order(common, ["init", "apply", "status", "proxy"])
+    advanced = _help_panel(result.stdout, panel_titles[1], panel_titles[2])
+    _assert_help_command_order(advanced, ["validate", "render", "sync"])
+    compact_help = " ".join(result.stdout.split())
+    assert "Reload client configuration without restarting the service." in compact_help
+    assert "Restart the instance's systemd service." in compact_help
+    assert "Check for a newer managed FRP binary." in result.stdout
+    assert "Upgrade the managed FRP binary." in result.stdout
+    assert "Typical workflow: init → edit configuration → apply → status" in result.stdout
 
 
-def test_proxy_group_without_subcommand_shows_help() -> None:
-    result = RUNNER.invoke(app, ["proxy"])
+def test_runtime_control_help_explains_operational_boundaries() -> None:
+    reload_result = RUNNER.invoke(app, ["reload", "--help"])
+    restart_result = RUNNER.invoke(app, ["restart", "--help"])
 
-    assert "Usage:" in result.output
-    assert "Structured local proxy management" in result.output
-    assert "list" in result.output
-    assert "import" in result.output
-    assert "add" in result.output
-    assert "preview" in result.output
+    assert reload_result.exit_code == 0, reload_result.stdout
+    assert restart_result.exit_code == 0, restart_result.stdout
+    reload_help = " ".join(reload_result.stdout.split())
+    restart_help = " ".join(restart_result.stdout.split())
+    assert "Client-only via the frpc control/web endpoint using current runtime/config." in reload_help
+    assert "Uses current runtime config; use apply for a complete deployment." in restart_help
+
+
+def test_proxy_help_uses_operation_panels_and_command_order() -> None:
+    result = RUNNER.invoke(app, ["proxy", "--help"])
+
+    assert result.exit_code == 0, result.stdout
+    panel_titles = ["Common proxy operations", "Import and inspection", "Destructive operations"]
+    assert [result.stdout.index(title) for title in panel_titles] == sorted(
+        result.stdout.index(title) for title in panel_titles
+    )
+    common = _help_panel(result.stdout, panel_titles[0], panel_titles[1])
+    _assert_help_command_order(common, ["list", "show", "add", "update", "enable", "disable"])
+    inspection = _help_panel(result.stdout, panel_titles[1], panel_titles[2])
+    _assert_help_command_order(inspection, ["import", "preview"])
+    destructive = _help_panel(result.stdout, panel_titles[2])
+    _assert_help_command_order(destructive, ["remove"])
+    assert "soft" not in destructive.lower()
+    assert "Permanently delete" in destructive
     assert "Missing command" not in result.output
 
 
@@ -222,7 +277,7 @@ def test_mcp_group_without_subcommand_shows_help() -> None:
     result = RUNNER.invoke(app, ["mcp"])
 
     assert "Usage:" in result.output
-    assert "MCP stdio helper commands" in result.output
+    assert "Manage MCP stdio integration." in result.output
     assert "install-stdio-wrapper" in result.output
     assert "Missing command" not in result.output
 
@@ -231,7 +286,7 @@ def test_audit_group_without_subcommand_shows_help() -> None:
     result = RUNNER.invoke(app, ["audit"])
 
     assert "Usage:" in result.output
-    assert "Read-only audit inspection" in result.output
+    assert "Inspect write-audit history." in result.output
     assert "recent" in result.output
     assert "Missing command" not in result.output
 
@@ -242,6 +297,18 @@ def test_init_without_required_args_still_reports_missing_argument() -> None:
     assert result.exit_code != 0
     assert "Missing argument" in result.output
     assert "client|server" in result.output
+
+
+def test_apply_help_explains_install_if_missing() -> None:
+    result = RUNNER.invoke(app, ["apply", "--help"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "--install-if-missing" in result.stdout
+    assert "--no-install-if-miss" in result.stdout
+    assert "Automatically install" in result.stdout
+    assert "managed FRP" in result.stdout
+    assert "when it is" in result.stdout
+    assert "missing." in result.stdout
 
 
 def test_apply_shows_human_readable_step_output(monkeypatch, tmp_path: Path) -> None:
@@ -306,9 +373,10 @@ def test_apply_fails_fast_with_root_reasons_before_side_effects(monkeypatch, tmp
     result = RUNNER.invoke(app, ["apply", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "will manage system service via systemctl" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "will manage system service via systemctl" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -608,6 +676,63 @@ def test_proxy_update_with_positional_patch_file_writes_config(tmp_path: Path) -
     assert proxy["description"] == "patched ssh"
 
 
+def test_proxy_disable_keeps_definition_and_sets_enabled_false(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    result = RUNNER.invoke(app, ["proxy", "disable", "ssh", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 0, result.stdout
+    payload = yaml.safe_load((tmp_path / "proxies.yaml").read_text(encoding="utf-8"))
+    proxy = next(entry for entry in payload["proxies"] if entry["name"] == "ssh")
+    assert proxy["enabled"] is False
+
+
+def test_proxy_remove_permanently_deletes_enabled_and_disabled_definitions(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    enabled_result = RUNNER.invoke(app, ["proxy", "remove", "ssh", "--instance", str(tmp_path)])
+    disabled_result = RUNNER.invoke(app, ["proxy", "remove", "dns", "--instance", str(tmp_path)])
+
+    assert enabled_result.exit_code == 0, enabled_result.stdout
+    assert "permanently removed from proxies.yaml" in enabled_result.stdout
+    assert disabled_result.exit_code == 0, disabled_result.stdout
+    payload = yaml.safe_load((tmp_path / "proxies.yaml").read_text(encoding="utf-8"))
+    assert payload["proxies"] == []
+    records = _load_audit_records(tmp_path)
+    assert [record["target"] for record in records] == [{"proxy_name": "ssh"}, {"proxy_name": "dns"}]
+
+
+def test_proxy_remove_json_keeps_stable_mutation_envelope(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    result = RUNNER.invoke(
+        app,
+        ["proxy", "remove", "ssh", "--instance", str(tmp_path), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["command"] == "proxy remove"
+    assert payload["data"]["operation"] == "remove"
+    assert payload["data"]["changed"] is True
+    assert payload["data"]["apply_required"] is True
+    assert payload["data"]["removed_name"] == "ssh"
+    assert payload["data"]["proxy"] is None
+
+
+def test_proxy_remove_rejects_removed_hard_option(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    help_result = RUNNER.invoke(app, ["proxy", "remove", "--help"])
+    result = RUNNER.invoke(app, ["proxy", "remove", "ssh", "--hard", "--instance", str(tmp_path)])
+
+    assert "--hard" not in help_result.stdout
+    assert result.exit_code != 0
+    assert "No such option" in result.stderr
+    assert "--hard" in result.stderr
+
+
 def test_proxy_add_http_requires_custom_domain_or_subdomain(tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
     before = (tmp_path / "proxies.yaml").read_text(encoding="utf-8")
@@ -628,7 +753,8 @@ def test_proxy_add_http_requires_custom_domain_or_subdomain(tmp_path: Path) -> N
     )
 
     assert result.exit_code == 1, result.stdout
-    assert "requires custom_domains or subdomain" in result.stdout
+    assert "requires custom_domains or subdomain" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert (tmp_path / "proxies.yaml").read_text(encoding="utf-8") == before
 
 
@@ -652,7 +778,8 @@ def test_proxy_add_https_requires_custom_domain_or_subdomain(tmp_path: Path) -> 
     )
 
     assert result.exit_code == 1, result.stdout
-    assert "requires custom_domains or subdomain" in result.stdout
+    assert "requires custom_domains or subdomain" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert (tmp_path / "proxies.yaml").read_text(encoding="utf-8") == before
 
 
@@ -676,9 +803,10 @@ def test_uninstall_fails_fast_with_root_reasons_before_side_effects(monkeypatch,
     result = RUNNER.invoke(app, ["uninstall", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "will manage system service via systemctl" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "will manage system service via systemctl" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -890,8 +1018,9 @@ def test_sync_command_fails_fast_with_root_reasons_before_side_effects(monkeypat
     result = RUNNER.invoke(app, ["sync", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -930,7 +1059,8 @@ def test_reload_missing_runtime_config_mentions_sync_or_apply(tmp_path: Path) ->
     result = RUNNER.invoke(app, ["reload", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "run sync or apply first" in result.stdout
+    assert "run sync or apply first" in result.stderr
+    assert "ERROR:" not in result.stdout
 
 
 def test_reload_fails_fast_when_web_server_disabled(tmp_path: Path) -> None:
@@ -947,7 +1077,8 @@ def test_reload_fails_fast_when_web_server_disabled(tmp_path: Path) -> None:
     result = RUNNER.invoke(app, ["reload", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "client.web_server.enable must be true for reload" in result.stdout
+    assert "client.web_server.enable must be true for reload" in result.stderr
+    assert "ERROR:" not in result.stdout
 
 
 def test_status_json_gracefully_handles_missing_systemctl(monkeypatch, tmp_path: Path) -> None:
@@ -1063,6 +1194,8 @@ def test_upgrade_shows_download_progress_for_release_install(monkeypatch, tmp_pa
 
 
 def test_mcp_install_stdio_wrapper_creates_executable_script(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
     result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
 
     script_path = tmp_path / WRAPPER_FILENAME
@@ -1082,20 +1215,78 @@ def test_mcp_install_stdio_wrapper_creates_executable_script(tmp_path: Path) -> 
     assert f"Wrapper path: {script_path.resolve()}" in result.stdout
     assert f"Bound instance: {tmp_path.resolve()}" in result.stdout
     assert f"Python: {Path(sys.executable).resolve()}" in result.stdout
-    assert "Claude Code example:" in result.stdout
+    assert "Local MCP stdio example:" in result.stdout
     assert str(script_path.resolve()) in result.stdout
-    assert "Please manually verify the SSH command first before enabling BatchMode yes." in result.stdout
-    assert (
-        "If this wrapper fails remotely, verify that the embedded Python interpreter is valid in that environment."
-        in result.stdout
-    )
+    assert "ssh " not in result.stdout
+    assert "BatchMode" not in result.stdout
     records = _load_audit_records(tmp_path)
     assert records[0]["operation"] == "mcp_wrapper_install"
     assert records[0]["target"]["wrapper_path"] == str(script_path.resolve())
     assert records[0]["target"]["instance_dir"] == str(tmp_path.resolve())
 
 
+def test_mcp_install_stdio_wrapper_rejects_empty_directory_without_side_effects(tmp_path: Path) -> None:
+    result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "ERROR: MCP stdio wrapper installation failed:" in result.stderr
+    assert "config file not found" in result.stderr
+    assert not (tmp_path / WRAPPER_FILENAME).exists()
+    assert not (tmp_path / "state").exists()
+    assert "Traceback" not in result.output
+
+
+def test_mcp_install_stdio_wrapper_remote_example_is_explicit_and_wrapper_is_unchanged(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+    local_result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+    script_path = tmp_path / WRAPPER_FILENAME
+    local_content = script_path.read_text(encoding="utf-8")
+
+    remote_result = RUNNER.invoke(
+        app,
+        [
+            "mcp",
+            "install-stdio-wrapper",
+            "--instance",
+            str(tmp_path),
+            "--ssh-host",
+            "example-host",
+        ],
+    )
+
+    assert local_result.exit_code == 0, local_result.output
+    assert remote_result.exit_code == 0, remote_result.output
+    assert "Remote SSH MCP example:" in remote_result.stdout
+    assert f"ssh example-host {script_path.resolve()}" in remote_result.stdout
+    assert "Manually verify first:" in remote_result.stdout
+    assert "BatchMode" in remote_result.stdout
+    assert "virtual environment" in remote_result.stdout
+    assert script_path.read_text(encoding="utf-8") == local_content
+
+
+def test_mcp_install_stdio_wrapper_local_example_quotes_absolute_path(tmp_path: Path) -> None:
+    instance = tmp_path / "instance with spaces"
+    _write_client_instance(instance)
+
+    result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(instance)])
+
+    script_path = (instance / WRAPPER_FILENAME).resolve()
+    assert result.exit_code == 0, result.output
+    assert shlex.quote(str(script_path)) in result.stdout
+
+
+def test_mcp_install_stdio_wrapper_help_has_no_host_default() -> None:
+    result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--help"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "--ssh-host" in result.stdout
+    assert "example-host" not in result.stdout
+    assert "default:" not in _help_panel(result.stdout, "--ssh-host", "--sudo").lower()
+
+
 def test_mcp_install_stdio_wrapper_defaults_to_current_directory(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper"])
@@ -1109,6 +1300,7 @@ def test_mcp_install_stdio_wrapper_defaults_to_current_directory(monkeypatch, tm
 
 
 def test_mcp_install_stdio_wrapper_allows_python_override(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     fake_python = tmp_path / "bin" / "python-custom"
     fake_python.parent.mkdir(parents=True, exist_ok=True)
     fake_python.write_text("", encoding="utf-8")
@@ -1127,6 +1319,7 @@ def test_mcp_install_stdio_wrapper_allows_python_override(tmp_path: Path) -> Non
 
 
 def test_mcp_install_stdio_wrapper_ignores_virtual_env_for_default_python(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     venv_python = tmp_path / "venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True, exist_ok=True)
     venv_python.write_text("", encoding="utf-8")
@@ -1142,6 +1335,7 @@ def test_mcp_install_stdio_wrapper_ignores_virtual_env_for_default_python(monkey
 
 
 def test_mcp_install_stdio_wrapper_python_override_wins_over_virtual_env(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     venv_python = tmp_path / "venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True, exist_ok=True)
     venv_python.write_text("", encoding="utf-8")
@@ -1164,8 +1358,10 @@ def test_mcp_install_stdio_wrapper_python_override_wins_over_virtual_env(monkeyp
 
 
 def test_mcp_uninstall_stdio_wrapper_removes_script(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     script_path = tmp_path / WRAPPER_FILENAME
     RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
+    (tmp_path / "node.yaml").unlink()
 
     result = RUNNER.invoke(app, ["mcp", "uninstall-stdio-wrapper", "--instance", str(tmp_path)])
 
@@ -1185,6 +1381,7 @@ def test_mcp_uninstall_stdio_wrapper_is_not_fatal_when_missing(tmp_path: Path) -
 
 
 def test_mcp_uninstall_stdio_wrapper_defaults_to_current_directory(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     monkeypatch.chdir(tmp_path)
     RUNNER.invoke(app, ["mcp", "install-stdio-wrapper"])
 
@@ -1211,8 +1408,9 @@ def test_restart_fails_fast_with_root_reasons_before_side_effects(monkeypatch, t
     result = RUNNER.invoke(app, ["restart", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -1256,8 +1454,9 @@ def test_reload_fails_fast_with_root_reasons_before_command_execution(monkeypatc
     result = RUNNER.invoke(app, ["reload", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -1299,8 +1498,9 @@ def test_upgrade_fails_fast_with_root_reasons_before_side_effects(monkeypatch, t
     result = RUNNER.invoke(app, ["upgrade", "--instance", str(tmp_path), "--no-restart"])
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -1338,8 +1538,9 @@ def test_init_fails_fast_with_root_reasons_before_scaffold(monkeypatch, tmp_path
     result = RUNNER.invoke(app, ["init", "client", "demo", "--directory", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -1372,8 +1573,9 @@ def test_render_fails_fast_with_root_reasons_before_rendering(monkeypatch, tmp_p
     result = RUNNER.invoke(app, ["render", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -1421,8 +1623,9 @@ def test_proxy_add_tcp_fails_fast_with_root_reasons_before_mutation(monkeypatch,
     )
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -1468,8 +1671,9 @@ def test_mcp_install_stdio_wrapper_fails_fast_with_root_reasons_before_mutation(
     result = RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1, result.stdout
-    assert "requires elevated privileges" in result.stdout
-    assert "--sudo" in result.stdout
+    assert "requires elevated privileges" in result.stderr
+    assert "--sudo" in result.stderr
+    assert "ERROR:" not in result.stdout
     assert calls == []
 
 
@@ -1487,6 +1691,7 @@ def test_mcp_install_stdio_wrapper_sudo_reexec_happens_before_mutation(monkeypat
 
 
 def test_mcp_install_stdio_wrapper_surfaces_audit_failure_as_warning(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     monkeypatch.setattr(
         "frpdeck.commands.mcp.record_audit_event",
         lambda *args, **kwargs: (_ for _ in ()).throw(OSError("disk full")),
@@ -1496,10 +1701,12 @@ def test_mcp_install_stdio_wrapper_surfaces_audit_failure_as_warning(monkeypatch
 
     assert result.exit_code == 0, result.stdout
     assert (tmp_path / WRAPPER_FILENAME).exists()
-    assert "WARNING: audit log append failed: disk full" in result.stdout
+    assert "WARNING: audit log append failed: disk full" in result.stderr
+    assert "WARNING:" not in result.stdout
 
 
 def test_audit_recent_text_shows_latest_entries(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
     RUNNER.invoke(app, ["mcp", "uninstall-stdio-wrapper", "--instance", str(tmp_path)])
 
@@ -1511,6 +1718,7 @@ def test_audit_recent_text_shows_latest_entries(tmp_path: Path) -> None:
 
 
 def test_audit_recent_defaults_to_current_directory(monkeypatch, tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     monkeypatch.chdir(tmp_path)
     RUNNER.invoke(app, ["mcp", "install-stdio-wrapper"])
 
@@ -1521,6 +1729,7 @@ def test_audit_recent_defaults_to_current_directory(monkeypatch, tmp_path: Path)
 
 
 def test_audit_recent_json_returns_entries(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
     RUNNER.invoke(app, ["mcp", "install-stdio-wrapper", "--instance", str(tmp_path)])
     RUNNER.invoke(app, ["mcp", "uninstall-stdio-wrapper", "--instance", str(tmp_path)])
 

@@ -1,9 +1,11 @@
+import inspect
 import json
 import logging
 from pathlib import Path
 
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig
 from frpdeck.facade.proxy_facade import ProxyFacade
+from frpdeck.services.proxy_manager import ProxyManager
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node
 
@@ -77,6 +79,23 @@ def test_import_and_preview_return_uniform_data(tmp_path: Path) -> None:
     assert preview.data["enabled_proxies"] == ["ssh", "imported-web"]
 
 
+def test_remove_proxy_returns_stable_mutation_envelope(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path, [TcpProxyConfig(name="ssh", local_port=22, remote_port=6000)])
+
+    result = ProxyFacade().remove_proxy(tmp_path, "ssh")
+
+    assert result.ok is True
+    assert result.operation == "remove_proxy"
+    assert result.data == {
+        "operation": "remove",
+        "changed": True,
+        "apply_required": True,
+        "removed_name": "ssh",
+        "message": "proxy 'ssh' permanently removed from proxies.yaml; apply required",
+        "proxy": None,
+    }
+
+
 def test_facade_applies_instance_logging_for_bound_calls(tmp_path: Path) -> None:
     _write_client_instance(
         tmp_path,
@@ -106,3 +125,8 @@ def test_facade_returns_config_load_failed_when_instance_logging_init_fails(tmp_
 
     assert result.ok is False
     assert result.error_code == "config_load_failed"
+
+
+def test_remove_proxy_interfaces_have_no_legacy_mode_parameter() -> None:
+    assert list(inspect.signature(ProxyManager.remove_proxy).parameters) == ["self", "instance_dir", "name"]
+    assert list(inspect.signature(ProxyFacade.remove_proxy).parameters) == ["self", "instance_dir", "name"]

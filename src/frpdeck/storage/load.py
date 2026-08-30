@@ -22,6 +22,8 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
         raise ConfigLoadError(f"config file not found: {path}") from exc
     except OSError as exc:
         raise ConfigLoadError(f"cannot read config file {path}: {exc}") from exc
+    except UnicodeError as exc:
+        raise ConfigLoadError(f"cannot decode config file {path} as UTF-8: {exc}") from exc
     except yaml.YAMLError as exc:
         raise ConfigLoadError(f"invalid YAML in {path}: {exc}") from exc
     if not isinstance(data, dict):

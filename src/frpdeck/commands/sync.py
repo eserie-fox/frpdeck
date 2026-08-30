@@ -6,8 +6,10 @@ from pathlib import Path
 
 import typer
 
+from frpdeck.commands._help import PREFLIGHT_AND_ADVANCED_DEPLOYMENT
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
+from frpdeck.commands.output import echo_error
 from frpdeck.domain.errors import ConfigLoadError, FrpdeckError, PermissionOperationError
 from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.installer import analyze_sync_root_requirements, sync_rendered_to_runtime
@@ -16,13 +18,13 @@ from frpdeck.storage.load import load_node_config
 
 
 def register(app: typer.Typer) -> None:
-    @app.command("sync")
+    @app.command("sync", rich_help_panel=PREFLIGHT_AND_ADVANCED_DEPLOYMENT)
     def sync_command(
         ctx: typer.Context,
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
         sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
     ) -> None:
-        """Mirror rendered/ into runtime/config without rendering, validating, or reloading."""
+        """Copy rendered files into runtime/config only."""
         instance_dir = instance.resolve()
         invocation = build_command_invocation(ctx, overrides={"instance": instance_dir})
         try:
@@ -52,10 +54,10 @@ def register(app: typer.Typer) -> None:
         except typer.Exit:
             raise
         except PermissionOperationError as exc:
-            typer.echo(f"ERROR: {exc}")
+            echo_error(str(exc))
             raise typer.Exit(code=1) from exc
-        except (ConfigLoadError, FrpdeckError) as exc:
-            typer.echo(f"ERROR: sync failed: {exc}")
+        except (ConfigLoadError, FrpdeckError, OSError) as exc:
+            echo_error(f"sync failed: {exc}")
             raise typer.Exit(code=1) from exc
 
         typer.echo(f"runtime config synced: {config_path}")

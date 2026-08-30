@@ -10,9 +10,17 @@ from typing import TypeVar
 import typer
 import yaml
 
+from frpdeck.commands._help import (
+    COMMON_PROXY_OPERATIONS,
+    COMMON_WORKFLOW,
+    DESTRUCTIVE_OPERATIONS,
+    IMPORT_AND_INSPECTION,
+)
 from frpdeck.commands._invocation import CommandInvocation, build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
 from frpdeck.commands.output import (
+    echo_error,
+    echo_warning,
     emit_json_envelope,
     serialize_mutation_result,
     serialize_preview_report,
@@ -35,9 +43,12 @@ from frpdeck.services.proxy_manager import (
     load_proxy_spec_from_file,
 )
 
-proxy_app = typer.Typer(help="Structured local proxy management", no_args_is_help=True)
+proxy_app = typer.Typer(help="Manage structured proxies.", no_args_is_help=True)
+_common_before_add_app = typer.Typer()
 proxy_add_app = typer.Typer(help="Add a structured proxy definition", no_args_is_help=True)
-proxy_app.add_typer(proxy_add_app, name="add")
+_common_after_add_app = typer.Typer()
+_import_and_inspection_app = typer.Typer()
+_destructive_operations_app = typer.Typer()
 
 MANAGER = ProxyManager()
 CommandResult = TypeVar("CommandResult")
@@ -55,10 +66,15 @@ class _ProxyCommandContext:
 
 
 def register(app: typer.Typer) -> None:
-    app.add_typer(proxy_app, name="proxy")
+    app.add_typer(
+        proxy_app,
+        name="proxy",
+        help="Manage structured proxies.",
+        rich_help_panel=COMMON_WORKFLOW,
+    )
 
 
-@proxy_app.command("list")
+@_common_before_add_app.command("list", rich_help_panel=COMMON_PROXY_OPERATIONS)
 def list_command(
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
@@ -69,7 +85,7 @@ def list_command(
     _emit_proxy_list(ctx, proxies)
 
 
-@proxy_app.command("show")
+@_common_before_add_app.command("show", rich_help_panel=COMMON_PROXY_OPERATIONS)
 def show_command(
     name: str,
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
@@ -83,7 +99,7 @@ def show_command(
     _emit_proxy_show(ctx, proxy)
 
 
-@proxy_app.command("import")
+@_import_and_inspection_app.command("import", rich_help_panel=IMPORT_AND_INSPECTION)
 def import_command(
     ctx: typer.Context,
     file: Path = typer.Argument(..., exists=True, dir_okay=False, resolve_path=True, help="Proxy spec YAML file"),
@@ -244,7 +260,7 @@ def add_https_command(
     )
 
 
-@proxy_app.command("update")
+@_common_after_add_app.command("update", rich_help_panel=COMMON_PROXY_OPERATIONS)
 def update_command(
     ctx: typer.Context,
     name: str,
@@ -282,7 +298,7 @@ def update_command(
     _emit_mutation_result(ctx, result)
 
 
-@proxy_app.command("enable")
+@_common_after_add_app.command("enable", rich_help_panel=COMMON_PROXY_OPERATIONS)
 def enable_command(
     ctx: typer.Context,
     name: str,
@@ -306,7 +322,7 @@ def enable_command(
     _emit_mutation_result(ctx, result)
 
 
-@proxy_app.command("disable")
+@_common_after_add_app.command("disable", rich_help_panel=COMMON_PROXY_OPERATIONS)
 def disable_command(
     ctx: typer.Context,
     name: str,
@@ -314,7 +330,7 @@ def disable_command(
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
     sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
-    """Disable a proxy in proxies.yaml."""
+    """Keep a proxy definition but set enabled to false."""
     result = _run_proxy_mutation_action(
         command_name="proxy disable",
         instance=instance,
@@ -330,23 +346,22 @@ def disable_command(
     _emit_mutation_result(ctx, result)
 
 
-@proxy_app.command("remove")
+@_destructive_operations_app.command("remove", rich_help_panel=DESTRUCTIVE_OPERATIONS)
 def remove_command(
     ctx: typer.Context,
     name: str,
-    hard: bool = typer.Option(False, "--hard", help="Permanently delete instead of soft-disabling"),
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
     sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
 ) -> None:
-    """Remove a proxy, soft by default."""
+    """Permanently delete a proxy definition from proxies.yaml."""
     result = _run_proxy_mutation_action(
         command_name="proxy remove",
         instance=instance,
         json_output=json_output,
         sudo=sudo,
         invocation=build_command_invocation(ctx, overrides={"instance": instance.resolve()}),
-        action=lambda: MANAGER.remove_proxy(instance.resolve(), name, soft=not hard),
+        action=lambda: MANAGER.remove_proxy(instance.resolve(), name),
         errors=(ConfigLoadError, ProxyNotFoundError),
     )
     if result is None:
@@ -355,7 +370,7 @@ def remove_command(
     _emit_mutation_result(ctx, result)
 
 
-@proxy_app.command("preview")
+@_import_and_inspection_app.command("preview", rich_help_panel=IMPORT_AND_INSPECTION)
 def preview_command(
     instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
@@ -407,7 +422,7 @@ def _run_proxy_action(
     try:
         with instance_logging_context(ctx.instance_dir, stream_override=ctx.stream_override):
             return action()
-    except errors as exc:
+    except errors + (OSError, UnicodeError) as exc:
         _fail(ctx.command, ctx.instance_dir, str(exc), json_output=ctx.json_output)
 
 
@@ -442,7 +457,7 @@ def _run_proxy_mutation_action(
         )
         with instance_logging_context(ctx.instance_dir, stream_override=ctx.stream_override):
             return action()
-    except errors + (PermissionOperationError,) as exc:
+    except errors + (PermissionOperationError, OSError, UnicodeError) as exc:
         _fail(command_name, ctx.instance_dir, str(exc), json_output=json_output)
 
 
@@ -530,15 +545,27 @@ def _fail(command: str, instance: Path, message: str, *, json_output: bool) -> N
     if json_output:
         emit_json_envelope(command=command, instance=instance, ok=False, data=None, errors=[message], warnings=[])
     else:
-        typer.echo(f"ERROR: {message}")
+        echo_error(message)
     raise typer.Exit(code=1)
 
 
 def _emit_errors(errors: list[str]) -> None:
     for error in errors:
-        typer.echo(f"ERROR: {error}")
+        echo_error(error)
 
 
 def _emit_warnings(warnings: list[str]) -> None:
     for warning in warnings:
-        typer.echo(f"WARNING: {warning}")
+        echo_warning(warning)
+
+
+proxy_app.add_typer(_common_before_add_app)
+proxy_app.add_typer(
+    proxy_add_app,
+    name="add",
+    help="Add a structured proxy definition.",
+    rich_help_panel=COMMON_PROXY_OPERATIONS,
+)
+proxy_app.add_typer(_common_after_add_app)
+proxy_app.add_typer(_import_and_inspection_app)
+proxy_app.add_typer(_destructive_operations_app)

@@ -9,8 +9,10 @@ from pathlib import Path
 import typer
 
 from frpdeck.commands._download_progress import CliDownloadProgressReporter
+from frpdeck.commands._help import COMMON_WORKFLOW
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
+from frpdeck.commands.output import echo_error
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, FrpdeckError, PermissionOperationError
 from frpdeck.logging.daily_symlink import instance_logging_context
@@ -53,15 +55,19 @@ class _CliApplyReporter(ApplyProgressReporter):
 
 
 def register(app: typer.Typer) -> None:
-    @app.command("apply")
+    @app.command("apply", rich_help_panel=COMMON_WORKFLOW)
     def apply_command(
         ctx: typer.Context,
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
         archive: Path | None = typer.Option(None, "--archive", help="Offline frp tar.gz archive"),
-        install_if_missing: bool = typer.Option(True, "--install-if-missing/--no-install-if-missing"),
+        install_if_missing: bool = typer.Option(
+            True,
+            "--install-if-missing/--no-install-if-missing",
+            help="Automatically install the managed FRP binary when it is missing.",
+        ),
         sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
     ) -> None:
-        """Validate, render, sync, install, and restart an instance."""
+        """Validate and deploy an instance to its desired running state."""
         instance_dir = instance.resolve()
         resolved_archive = archive.resolve() if archive is not None else None
         invocation = build_command_invocation(
@@ -114,17 +120,17 @@ def register(app: typer.Typer) -> None:
                     )
                 if not result.ok:
                     for error in result.validation_errors:
-                        typer.echo(f"ERROR: {error}")
+                        echo_error(error)
                     raise typer.Exit(code=1)
                 typer.echo("Apply completed successfully.")
         except typer.Exit:
             raise
         except ApplyExecutionError as exc:
-            typer.echo(f"ERROR: apply failed during {exc.step}: {exc}")
+            echo_error(f"apply failed during {exc.step}: {exc}")
             raise typer.Exit(code=1) from exc
         except PermissionOperationError as exc:
-            typer.echo(f"ERROR: {exc}")
+            echo_error(str(exc))
             raise typer.Exit(code=1) from exc
-        except (ConfigLoadError, CommandExecutionError, FrpdeckError) as exc:
-            typer.echo(f"ERROR: apply failed during {LOAD_CONFIG_STEP}: {exc}")
+        except (ConfigLoadError, CommandExecutionError, FrpdeckError, OSError) as exc:
+            echo_error(f"apply failed during {LOAD_CONFIG_STEP}: {exc}")
             raise typer.Exit(code=1) from exc

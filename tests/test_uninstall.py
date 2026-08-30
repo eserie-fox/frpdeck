@@ -66,6 +66,9 @@ def test_uninstall_keeps_source_config_by_default(monkeypatch, tmp_path: Path) -
     assert (tmp_path / "secrets").exists()
     assert "System installation artifacts have been removed." in result.stdout
     assert f"Instance configuration is still present in {tmp_path.resolve()}." in result.stdout
+    assert "frpdeck uninstall --instance" in result.stdout
+    assert "--purge" in result.stdout
+    assert "rm -rf" not in result.stdout
 
 
 def test_uninstall_with_purge_removes_instance_directory(monkeypatch, tmp_path: Path) -> None:
@@ -88,7 +91,8 @@ def test_uninstall_rejects_dangerous_paths(monkeypatch, tmp_path: Path) -> None:
     result = RUNNER.invoke(app, ["uninstall", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1
-    assert "refusing to delete dangerous path: /" in result.stdout
+    assert "refusing to delete dangerous path: /" in result.stderr
+    assert "ERROR:" not in result.stdout
 
 
 def test_uninstall_resets_failed_service_state_best_effort(monkeypatch, tmp_path: Path) -> None:

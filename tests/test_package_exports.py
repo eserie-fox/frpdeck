@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from importlib import import_module
+from importlib import import_module, util
 
 PACKAGE_MODULES = [
     "frpdeck",
@@ -45,3 +45,7 @@ def test_legacy_package_level_exports_are_not_available() -> None:
 
         for symbol in symbols:
             assert not hasattr(module, symbol)
+
+
+def test_dead_status_module_is_removed() -> None:
+    assert util.find_spec("frpdeck.services.status") is None
