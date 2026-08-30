@@ -83,7 +83,7 @@ def test_analyze_sync_root_requirements_reports_non_writable_lock_path(monkeypat
 
     monkeypatch.setattr(
         "frpdeck.services.installer.can_write_file",
-        lambda path: False if path == lock_path else True,
+        lambda path: path != lock_path,
     )
     monkeypatch.setattr("frpdeck.services.installer.can_replace_directory", lambda path: True)
     monkeypatch.setattr("frpdeck.services.installer.can_write_directory", lambda path: True)
@@ -107,7 +107,7 @@ def test_analyze_reload_root_requirements_reports_non_executable_binary(monkeypa
 
     monkeypatch.setattr(
         "frpdeck.services.installer.can_execute_file",
-        lambda path: False if path == binary_path else True,
+        lambda path: path != binary_path,
     )
     monkeypatch.setattr("frpdeck.services.installer.can_read_path", lambda path: True)
 
@@ -122,7 +122,7 @@ def test_analyze_upgrade_root_requirements_reports_restart_and_lock_reasons(monk
 
     monkeypatch.setattr(
         "frpdeck.services.installer.can_write_file",
-        lambda path: False if path == lock_path else True,
+        lambda path: path != lock_path,
     )
     monkeypatch.setattr("frpdeck.services.installer.can_write_directory", lambda path: True)
     monkeypatch.setattr("frpdeck.services.installer.can_read_path", lambda path: True)

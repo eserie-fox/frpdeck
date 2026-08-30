@@ -1,12 +1,12 @@
-from pathlib import Path
 import json
 import logging
 import shutil
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
-from typer.testing import CliRunner
 import yaml
+from typer.testing import CliRunner
 
 from frpdeck.cli import app
 from frpdeck.commands.mcp import WRAPPER_FILENAME
@@ -20,10 +20,9 @@ from frpdeck.domain.status_models import (
     ServiceRuntimeStatus,
 )
 from frpdeck.services.apply_service import ApplyExecutionResult
-from frpdeck.version import __version__
 from frpdeck.storage.dump import dump_yaml_model
+from frpdeck.version import __version__
 from tests.support import build_client_node, build_server_node
-
 
 RUNNER = CliRunner()
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "instances"
@@ -242,7 +241,7 @@ def test_init_without_required_args_still_reports_missing_argument() -> None:
 
     assert result.exit_code != 0
     assert "Missing argument" in result.output
-    assert "ROLE:{client|server}" in result.output
+    assert "client|server" in result.output
 
 
 def test_apply_shows_human_readable_step_output(monkeypatch, tmp_path: Path) -> None:
@@ -435,16 +434,7 @@ def test_proxy_import_writes_config(tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
     spec_path = tmp_path / "web.yaml"
     spec_path.write_text(
-        "\n".join(
-            [
-                "name: imported-web",
-                "type: http",
-                "local_port: 8080",
-                "custom_domains:",
-                "  - imported.example.com",
-            ]
-        )
-        + "\n",
+        "name: imported-web\ntype: http\nlocal_port: 8080\ncustom_domains:\n  - imported.example.com\n",
         encoding="utf-8",
     )
 
@@ -594,14 +584,7 @@ def test_proxy_update_with_positional_patch_file_writes_config(tmp_path: Path) -
     _write_client_instance(tmp_path)
     patch_path = tmp_path / "web-patch.yaml"
     patch_path.write_text(
-        "\n".join(
-            [
-                "local_port: 2222",
-                "remote_port: 7002",
-                "description: patched ssh",
-            ]
-        )
-        + "\n",
+        "local_port: 2222\nremote_port: 7002\ndescription: patched ssh\n",
         encoding="utf-8",
     )
 

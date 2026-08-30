@@ -12,7 +12,6 @@ from pydantic import BaseModel
 
 from frpdeck.domain.facade_models import FacadeResult
 
-
 MCP_SCHEMA_VERSION = "frpdeck.mcp.v1"
 
 

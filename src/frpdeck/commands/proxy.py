@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 import typer
 import yaml
@@ -33,7 +34,6 @@ from frpdeck.services.proxy_manager import (
     analyze_proxy_write_root_requirements,
     load_proxy_spec_from_file,
 )
-
 
 proxy_app = typer.Typer(help="Structured local proxy management", no_args_is_help=True)
 proxy_add_app = typer.Typer(help="Add a structured proxy definition", no_args_is_help=True)
@@ -514,7 +514,7 @@ def _emit_preview_result(ctx: _ProxyCommandContext, report: PreviewReport) -> No
 
 def _remote_endpoint(proxy: object) -> str:
     if hasattr(proxy, "remote_port"):
-        return str(getattr(proxy, "remote_port"))
+        return str(proxy.remote_port)
     custom_domains = getattr(proxy, "custom_domains", None) or []
     subdomain = getattr(proxy, "subdomain", None)
     if custom_domains:

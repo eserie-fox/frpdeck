@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-import shutil
 
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import ConfigValidationError, PermissionOperationError
@@ -20,7 +20,6 @@ from frpdeck.services.systemd_manager import (
     stop_service,
 )
 from frpdeck.storage.load import load_node_config
-
 
 _DANGEROUS_DELETE_PATHS = {
     Path("/"),

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.services.runtime import CommandResult, run_command

@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import re
 import shutil
 import tarfile
 import tempfile
 from collections.abc import Callable
+from pathlib import Path
 
 from frpdeck.domain.enums import Role
 from frpdeck.domain.errors import ConfigValidationError, PermissionOperationError
 from frpdeck.domain.paths import resolve_path_from_instance
 from frpdeck.domain.state import InstallState, NodeBase
 from frpdeck.domain.versioning import normalize_version
-from frpdeck.storage.dump import dump_json_data
 from frpdeck.services.backup import backup_file_if_exists
 from frpdeck.services.downloader import DownloadProgressCallback, download_file
 from frpdeck.services.privilege import (
@@ -27,7 +26,7 @@ from frpdeck.services.privilege import (
     root_owned_hint,
 )
 from frpdeck.services.release_checker import ReleaseInfo, get_release
-
+from frpdeck.storage.dump import dump_json_data
 
 DownloadStageCallback = Callable[[str], None]
 

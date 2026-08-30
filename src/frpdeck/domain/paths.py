@@ -23,7 +23,7 @@ class PathConfig(BaseModel):
     def _coerce_path(cls, value: str | Path) -> Path:
         return Path(value)
 
-    def resolve(self, instance_dir: Path) -> "ResolvedPathConfig":
+    def resolve(self, instance_dir: Path) -> ResolvedPathConfig:
         """Return an absolute-path version of this config."""
         return ResolvedPathConfig(
             install_dir=_resolve_path(self.install_dir, instance_dir),

@@ -40,7 +40,7 @@ class ProxyFacade:
                 instance,
                 {"count": len(proxies), "proxies": [self._serialize_proxy(proxy) for proxy in proxies]},
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
     def get_proxy(self, instance_dir: Path, name: str) -> FacadeResult:
@@ -50,7 +50,7 @@ class ProxyFacade:
             with instance_logging_context(instance):
                 proxy = self._manager.get_proxy(instance, name)
             return self._success(operation, instance, {"proxy": self._serialize_proxy(proxy)})
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
     def add_proxy(self, instance_dir: Path, proxy_spec: ProxyConfig | dict[str, object]) -> FacadeResult:
@@ -60,7 +60,7 @@ class ProxyFacade:
             with instance_logging_context(instance):
                 result = self._manager.add_proxy(instance, proxy_spec)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
     def import_proxy_file(self, instance_dir: Path, file_path: Path) -> FacadeResult:
@@ -70,7 +70,7 @@ class ProxyFacade:
             with instance_logging_context(instance):
                 result = self._manager.import_proxy_file(instance, file_path.resolve())
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
     def update_proxy(self, instance_dir: Path, name: str, patch_spec: dict[str, object] | BaseModel) -> FacadeResult:
@@ -80,7 +80,7 @@ class ProxyFacade:
             with instance_logging_context(instance):
                 result = self._manager.update_proxy(instance, name, patch_spec)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
     def remove_proxy(self, instance_dir: Path, name: str, soft: bool = True) -> FacadeResult:
@@ -90,7 +90,7 @@ class ProxyFacade:
             with instance_logging_context(instance):
                 result = self._manager.remove_proxy(instance, name, soft=soft)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
     def enable_proxy(self, instance_dir: Path, name: str) -> FacadeResult:
@@ -100,7 +100,7 @@ class ProxyFacade:
             with instance_logging_context(instance):
                 result = self._manager.enable_proxy(instance, name)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
     def disable_proxy(self, instance_dir: Path, name: str) -> FacadeResult:
@@ -110,7 +110,7 @@ class ProxyFacade:
             with instance_logging_context(instance):
                 result = self._manager.disable_proxy(instance, name)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
     def preview_proxy_changes(self, instance_dir: Path) -> FacadeResult:
@@ -131,7 +131,7 @@ class ProxyFacade:
                 errors=list(report.errors),
                 warnings=list(report.warnings),
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
     def _success(self, operation: str, instance: Path, data: Any, warnings: list[str] | None = None) -> FacadeResult:

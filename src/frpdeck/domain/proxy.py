@@ -79,7 +79,7 @@ class HttpProxyConfig(ProxyBase):
     subdomain: str | None = None
 
     @model_validator(mode="after")
-    def _validate_routes(self) -> "HttpProxyConfig":
+    def _validate_routes(self) -> HttpProxyConfig:
         self.custom_domains, self.subdomain = validate_http_proxy_routes(
             self.custom_domains,
             self.subdomain,
@@ -94,7 +94,7 @@ class HttpsProxyConfig(ProxyBase):
     subdomain: str | None = None
 
     @model_validator(mode="after")
-    def _validate_routes(self) -> "HttpsProxyConfig":
+    def _validate_routes(self) -> HttpsProxyConfig:
         self.custom_domains, self.subdomain = validate_http_proxy_routes(
             self.custom_domains,
             self.subdomain,

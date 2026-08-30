@@ -4,9 +4,9 @@ import pytest
 from pydantic import ValidationError
 
 from frpdeck.config.instance import validate_node_mapping
-from frpdeck.domain.enums import FrpLogLevel, FrpdeckLogLevel, Role
 from frpdeck.domain.client_config import AuthConfig
-from frpdeck.domain.proxy import HttpProxyConfig, PROXY_ADAPTER, TcpProxyConfig
+from frpdeck.domain.enums import FrpdeckLogLevel, FrpLogLevel, Role
+from frpdeck.domain.proxy import PROXY_ADAPTER, HttpProxyConfig, TcpProxyConfig
 from frpdeck.domain.versioning import compare_versions, normalize_version
 from tests.support import build_binary_config, build_client_node
 

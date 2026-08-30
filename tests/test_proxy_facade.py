@@ -1,6 +1,6 @@
-from pathlib import Path
 import json
 import logging
+from pathlib import Path
 
 from frpdeck.domain.proxy import ProxyFile, TcpProxyConfig
 from frpdeck.facade.proxy_facade import ProxyFacade
@@ -60,16 +60,7 @@ def test_import_and_preview_return_uniform_data(tmp_path: Path) -> None:
     facade = ProxyFacade()
     import_file = tmp_path / "web.yaml"
     import_file.write_text(
-        "\n".join(
-            [
-                "name: imported-web",
-                "type: http",
-                "local_port: 8080",
-                "custom_domains:",
-                "  - imported.example.com",
-            ]
-        )
-        + "\n",
+        "name: imported-web\ntype: http\nlocal_port: 8080\ncustom_domains:\n  - imported.example.com\n",
         encoding="utf-8",
     )
 

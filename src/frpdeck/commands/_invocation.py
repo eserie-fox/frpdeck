@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import os
+import shlex
+import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-import shlex
-import sys
-from typing import Any, Mapping
+from typing import Any
 
 import click
 from click.core import ParameterSource
-
 
 _AUTO_EXCLUDED_PARAMETER_NAMES = {"install_completion", "show_completion"}
 _DEFAULT_PARAMETER_SOURCES = {None, ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP}

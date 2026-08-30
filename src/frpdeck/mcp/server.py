@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from frpdeck.facade.proxy_facade import ProxyFacade
 from frpdeck.logging.daily_symlink import configure_default_logging, configure_instance_logging
@@ -17,21 +17,19 @@ from frpdeck.mcp.tools import register_tools
 from frpdeck.services.status_service import StatusService
 from frpdeck.storage.load import load_node_config
 
-
 SERVER_NAME = "frpdeck"
 
 
-def create_mcp_server(instance_dir: str | Path | None = None) -> FastMCP:
+def create_mcp_server(instance_dir: str | Path | None = None) -> MCPServer:
     """Create the MCP server with tools and resources registered."""
     bound_instance_dir = None if instance_dir is None else resolve_instance_dir(instance_dir)
     mode = "bound" if bound_instance_dir is not None else "generic"
-    server = FastMCP(
+    server = MCPServer(
         SERVER_NAME,
         instructions=(
             "Thin local MCP wrapper over frpdeck structured proxy CRUD, import, and preview operations "
             "plus read-only instance status resources. Use tools for proxy maintenance and resources for status snapshots."
         ),
-        json_response=True,
     )
     facade = ProxyFacade()
     status_service = StatusService()

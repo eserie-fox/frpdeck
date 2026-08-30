@@ -9,8 +9,8 @@ from pathlib import Path
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 from frpdeck.domain.client_config import AuthConfig, FrpLogConfig
-from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.domain.enums import Role
+from frpdeck.domain.errors import PermissionOperationError
 from frpdeck.domain.paths import resolve_path_from_instance
 from frpdeck.domain.proxy import (
     HttpProxyConfig,

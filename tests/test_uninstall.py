@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 from typer.testing import CliRunner
 
 from frpdeck.cli import app
@@ -8,7 +7,6 @@ from frpdeck.services.runtime import CommandResult
 from frpdeck.services.uninstall import analyze_uninstall_root_requirements, uninstall_instance
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node
-
 
 RUNNER = CliRunner()
 
@@ -150,9 +148,7 @@ def test_analyze_uninstall_root_requirements_reports_non_writable_purge_target(m
     _write_instance(tmp_path)
 
     monkeypatch.setattr("frpdeck.services.uninstall.command_exists", lambda command: False)
-    monkeypatch.setattr(
-        "frpdeck.services.uninstall.can_delete_path", lambda path: False if path == tmp_path.resolve() else True
-    )
+    monkeypatch.setattr("frpdeck.services.uninstall.can_delete_path", lambda path: path != tmp_path.resolve())
 
     reasons = analyze_uninstall_root_requirements(tmp_path, purge=True)
 

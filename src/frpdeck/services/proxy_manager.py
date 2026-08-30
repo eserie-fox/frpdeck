@@ -33,9 +33,9 @@ from frpdeck.services.audit import (
     read_text_snapshot,
     record_audit_event,
     revision_dir_path,
+    utc_timestamp,
     write_proxy_revision,
     yaml_text,
-    utc_timestamp,
 )
 from frpdeck.services.privilege import can_read_path, can_write_file, root_owned_hint
 from frpdeck.services.renderer import render_instance
@@ -387,7 +387,7 @@ class ProxyManager:
                 before_yaml=before_yaml,
                 after_yaml=after_yaml,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - audit persistence must not roll back proxy changes
             warning = f"audit revision write failed: {exc}"
             audit_result["warnings"] = list(audit_result["warnings"]) + [warning]
         try:
@@ -403,7 +403,7 @@ class ProxyManager:
                 ts=ts,
                 event_id=event_id,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - audit persistence must not roll back proxy changes
             warning = (
                 f"audit log append failed: {exc}" if warning is None else f"{warning}; audit log append failed: {exc}"
             )

@@ -11,14 +11,14 @@ import typer
 from frpdeck.commands._download_progress import CliDownloadProgressReporter
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
-from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, FrpdeckError, PermissionOperationError
 from frpdeck.domain.enums import Role
+from frpdeck.domain.errors import CommandExecutionError, ConfigLoadError, FrpdeckError, PermissionOperationError
 from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.apply_service import (
+    LOAD_CONFIG_STEP,
     ApplyExecutionError,
     ApplyProgressReporter,
     ApplyService,
-    LOAD_CONFIG_STEP,
     analyze_apply_root_requirements,
 )
 from frpdeck.storage.file_lock import instance_lock

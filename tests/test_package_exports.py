@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from importlib import import_module
 
-
 PACKAGE_MODULES = [
     "frpdeck",
     "frpdeck.commands",

@@ -5,15 +5,14 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Callable, Iterator
 
 from frpdeck.domain.frpdeck_logging import LoggingStream
 from frpdeck.domain.state import NodeBase
-
 
 DEFAULT_LOG_FORMAT = "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
 DEFAULT_LOG_LEVEL = logging.INFO
@@ -56,23 +55,23 @@ class DailySymlinkFileHandler(logging.Handler):
             return None
         return Path(self._file_handler.baseFilename)
 
-    def setFormatter(self, fmt: logging.Formatter) -> None:  # noqa: D401,N802
+    def setFormatter(self, fmt: logging.Formatter) -> None:
         super().setFormatter(fmt)
         if self._file_handler is not None:
             self._file_handler.setFormatter(fmt)
 
-    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+    def emit(self, record: logging.LogRecord) -> None:
         with self._lock:
             self._rotate_if_needed()
             if self._file_handler is not None:
                 self._file_handler.emit(record)
 
-    def flush(self) -> None:  # noqa: D401
+    def flush(self) -> None:
         with self._lock:
             if self._file_handler is not None:
                 self._file_handler.flush()
 
-    def close(self) -> None:  # noqa: D401
+    def close(self) -> None:
         with self._lock:
             if self._file_handler is not None:
                 self._file_handler.close()
@@ -279,7 +278,7 @@ def _cleanup_old_logs(
 
         suffix = candidate.stem[len(stem) + 1 :]
         try:
-            candidate_date = datetime.strptime(suffix, "%Y-%m-%d").date()
+            candidate_date = date.fromisoformat(suffix)
         except ValueError:
             continue
 

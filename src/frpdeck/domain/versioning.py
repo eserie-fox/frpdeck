@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 _VERSION_RE = re.compile(r"^v?(?P<core>\d+(?:\.\d+)*)(?P<suffix>[-+][0-9A-Za-z.-]+)?$")
 
 
@@ -17,7 +16,7 @@ def normalize_version(value: str | None) -> str | None:
         return None
     match = _VERSION_RE.fullmatch(stripped)
     if not match:
-        return stripped[1:] if stripped.startswith("v") else stripped
+        return stripped.removeprefix("v")
     core = match.group("core")
     suffix = match.group("suffix") or ""
     return f"{core}{suffix}"

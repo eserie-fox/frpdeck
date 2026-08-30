@@ -1,6 +1,6 @@
 import logging
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -36,7 +36,7 @@ def _restore_root_logger() -> object:
 
 
 def test_daily_symlink_handler_is_lazy_until_first_record(tmp_path: Path) -> None:
-    current = datetime(2026, 3, 31, 12, 0, 0)
+    current = datetime(2026, 3, 31, 12, 0, 0, tzinfo=UTC)
 
     def now() -> datetime:
         return current
@@ -65,7 +65,7 @@ def test_daily_symlink_handler_is_lazy_until_first_record(tmp_path: Path) -> Non
 
 
 def test_daily_symlink_handler_prunes_old_files_by_retention(tmp_path: Path) -> None:
-    current = datetime(2026, 3, 31, 12, 0, 0)
+    current = datetime(2026, 3, 31, 12, 0, 0, tzinfo=UTC)
 
     def now() -> datetime:
         return current
@@ -181,7 +181,7 @@ def test_daily_symlink_handler_does_not_reuse_resolved_daily_target_as_stem(tmp_
 
     handler = DailySymlinkFileHandler(
         config.file_path,
-        now_func=lambda: datetime(2026, 4, 1, 12, 0, 0),
+        now_func=lambda: datetime(2026, 4, 1, 12, 0, 0, tzinfo=UTC),
     )
     handler.setFormatter(logging.Formatter("%(message)s"))
     handler.emit(
@@ -262,9 +262,8 @@ def test_instance_logging_context_stream_override_none_suppresses_console_and_ke
         tmp_path / "node.yaml",
     )
 
-    with _restore_root_logger():
-        with instance_logging_context(tmp_path, stream_override="none"):
-            logging.getLogger("frpdeck.test").info("no console output")
+    with _restore_root_logger(), instance_logging_context(tmp_path, stream_override="none"):
+        logging.getLogger("frpdeck.test").info("no console output")
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -288,9 +287,8 @@ def test_instance_logging_context_without_override_honors_configured_stream(tmp_
         tmp_path / "node.yaml",
     )
 
-    with _restore_root_logger():
-        with instance_logging_context(tmp_path):
-            logging.getLogger("frpdeck.test").info("stdout logging active")
+    with _restore_root_logger(), instance_logging_context(tmp_path):
+        logging.getLogger("frpdeck.test").info("stdout logging active")
 
     captured = capsys.readouterr()
     assert "stdout logging active" in captured.out
@@ -300,33 +298,26 @@ def test_instance_logging_context_without_override_honors_configured_stream(tmp_
 def test_instance_logging_context_fails_fast_for_missing_node_config(tmp_path: Path) -> None:
     with _restore_root_logger():
         configure_default_logging()
-        with pytest.raises(ConfigLoadError, match="config file not found"):
-            with instance_logging_context(tmp_path):
-                pass
+        with pytest.raises(ConfigLoadError, match="config file not found"), instance_logging_context(tmp_path):
+            pass
 
 
 def test_instance_logging_context_fails_fast_for_invalid_logging_config(tmp_path: Path) -> None:
     (tmp_path / "node.yaml").write_text(
-        "\n".join(
-            [
-                "instance_name: demo-client",
-                "role: client",
-                "service:",
-                "  service_name: demo-frpc",
-                "frpdeck_logging:",
-                "  level: WARN",
-                "client:",
-                "  server_addr: example.com",
-                "  auth:",
-                "    token: secret",
-            ]
-        )
-        + "\n",
+        "instance_name: demo-client\n"
+        "role: client\n"
+        "service:\n"
+        "  service_name: demo-frpc\n"
+        "frpdeck_logging:\n"
+        "  level: WARN\n"
+        "client:\n"
+        "  server_addr: example.com\n"
+        "  auth:\n"
+        "    token: secret\n",
         encoding="utf-8",
     )
 
     with _restore_root_logger():
         configure_default_logging()
-        with pytest.raises(ConfigLoadError, match="invalid node config"):
-            with instance_logging_context(tmp_path):
-                pass
+        with pytest.raises(ConfigLoadError, match="invalid node config"), instance_logging_context(tmp_path):
+            pass

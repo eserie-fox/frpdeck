@@ -16,7 +16,6 @@ from frpdeck.domain.proxy import (
 )
 from frpdeck.domain.state import ClientNodeConfig, NodeBase, ServerNodeConfig
 
-
 PLACEHOLDER_PREFIX = "PLEASE_FILL_"
 
 
@@ -27,7 +26,7 @@ def validate_instance(instance_dir: Path, node: NodeBase, proxy_file: ProxyFile 
 
     try:
         node.resolved_paths(instance_dir)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - validation reports path-resolution failures as data
         errors.append(f"path resolution failed: {exc}")
 
     if node.role == Role.CLIENT:

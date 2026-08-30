@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -11,7 +12,6 @@ from frpdeck.config.resources import read_json_mapping
 from frpdeck.domain.enums import Role
 from frpdeck.domain.proxy import ProxyFile
 from frpdeck.domain.state import NODE_CONFIG_ADAPTER, NodeConfig
-
 
 CLIENT_NODE_DEFAULTS_RESOURCE_SPEC = "pkg://frpdeck/config_defaults/node_client.json"
 SERVER_NODE_DEFAULTS_RESOURCE_SPEC = "pkg://frpdeck/config_defaults/node_server.json"
@@ -92,7 +92,7 @@ def load_scaffold_token_example() -> str:
     payload = read_json_mapping(SCAFFOLD_TOKEN_EXAMPLE_RESOURCE_SPEC)
     token_example = payload.get("token_example")
     if not isinstance(token_example, str):
-        raise ValueError("scaffold token example must be a string")
+        raise TypeError("scaffold token example must be a string")
     return token_example
 
 
@@ -131,8 +131,8 @@ __all__ = [
     "SCAFFOLD_PROXY_FILE_OVERRIDES_RESOURCE_SPEC",
     "SCAFFOLD_SERVER_OVERRIDES_RESOURCE_SPEC",
     "SCAFFOLD_TOKEN_EXAMPLE_RESOURCE_SPEC",
-    "ScaffoldInstanceLayout",
     "SERVER_NODE_DEFAULTS_RESOURCE_SPEC",
+    "ScaffoldInstanceLayout",
     "load_node_defaults",
     "load_proxy_file_defaults",
     "load_scaffold_instance_layout",
