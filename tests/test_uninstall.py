@@ -8,7 +8,7 @@ from frpdeck.services.uninstall import analyze_uninstall_root_requirements, unin
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node
 
-RUNNER = CliRunner()
+RUNNER = CliRunner(env={"COLUMNS": "120"})
 
 
 def _write_instance(

@@ -7,7 +7,7 @@ from frpdeck.services.doctor import run_doctor
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node
 
-RUNNER = CliRunner()
+RUNNER = CliRunner(env={"COLUMNS": "120"})
 
 
 def _make_system_checks_pass(monkeypatch) -> None:

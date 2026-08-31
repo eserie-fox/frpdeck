@@ -9,7 +9,7 @@ from frpdeck.domain.errors import DownloadError, ReleaseNotFoundError
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node
 
-RUNNER = CliRunner()
+RUNNER = CliRunner(env={"COLUMNS": "120"})
 
 
 def _assert_no_traceback(result) -> None:

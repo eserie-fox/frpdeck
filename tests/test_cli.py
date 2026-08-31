@@ -26,7 +26,7 @@ from frpdeck.storage.dump import dump_yaml_model
 from frpdeck.version import __version__
 from tests.support import build_client_node, build_server_node
 
-RUNNER = CliRunner()
+RUNNER = CliRunner(env={"COLUMNS": "120"})
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "instances"
 
 
