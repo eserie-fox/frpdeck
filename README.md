@@ -21,9 +21,12 @@ Minimal client path:
 ```bash
 pip install frpdeck
 frpdeck init client my-client
-frpdeck validate --instance ./my-client
+# Edit ./my-client/node.yaml, ./my-client/proxies.yaml, and secrets first.
 frpdeck apply --instance ./my-client --sudo
+frpdeck status --instance ./my-client
 ```
+
+The normal workflow is `init` → edit configuration and secrets → `apply` → `status`. `apply` already validates and renders, so separate `validate` and `render` commands are optional advanced steps.
 
 ## Installation
 
@@ -67,11 +70,11 @@ Key design notes now live under `docs/`:
 - `validate` checks source config only: schema, placeholder values, token sources, path resolution, and simple proxy conflicts.
 - `render` generates FRP TOML, proxy includes, and systemd units under `rendered/` only.
 - `sync` mirrors managed files from `rendered/` into `runtime/config` only.
-- `reload` calls `frpc reload -c ...` for client instances using the current `runtime/config`.
+- `reload` is client-only and asks the frpc control/web server endpoint to reload the current `runtime/config` without restarting systemd.
 - `apply` validates, renders, syncs runtime files, installs binaries if needed, installs the systemd unit, and restarts the service.
-- `restart` and `status` operate on the configured systemd service.
-- `check-update` and `upgrade` support GitHub latest releases and offline archives.
-- `doctor` checks Linux/systemd availability, instance files, and basic write permissions.
+- `restart` restarts the configured systemd service using the current runtime config; `status` inspects instance and service state.
+- `check-update` and `upgrade` inspect or replace the managed FRP binary; they do not update the frpdeck Python package.
+- `doctor` checks the current-directory instance and system by default, with explicit instance and system-only modes available.
 - `python -m frpdeck.mcp.server` starts a local stdio MCP server that exposes proxy-management tools and read-only status resources.
 
 All mutating commands support `--sudo`. When a non-root user passes `--sudo`, `frpdeck` re-execs the full command via sudo before loading instance config or touching managed files. Without `--sudo`, mutating commands fail early with a retry hint when required paths are not readable or writable by the current user.
@@ -90,12 +93,31 @@ All mutating commands support `--sudo`. When a non-root user passes `--sudo`, `f
 
 ## Command semantics
 
-- `validate` reads `node.yaml` and `proxies.yaml`, validates them, and exits. It does not write `rendered/` or `runtime/config`.
+The normal deployment path is:
+
+```text
+init → edit configuration and secrets → apply → status
+```
+
+Use the following commands when you deliberately need preflight checks or staged deployment:
+
+- `validate` is an optional read-only preflight. It reads `node.yaml` and `proxies.yaml`, validates them, and does not write `rendered/` or `runtime/config`.
 - `render` writes the full generated snapshot into `rendered/`. It does not touch `runtime/config`, reload FRP, or restart systemd.
 - `sync` mirrors the managed rendered snapshot into `runtime/config`. It does not run validation, rendering, reload, or restart logic.
-- `reload` asks `frpc` to reload using the current `runtime/config`. If runtime config is missing, run `sync` or `apply` first.
-- `apply` is the full operational path: validate, render, sync, install/upgrade the managed binary if needed, install the systemd unit, and restart the service.
+- `reload` is client-only. It asks the frpc control/web server endpoint to reload the current `runtime/config` without restarting the systemd service. If runtime config is missing, run `sync` or `apply` first.
+- `restart` restarts the instance's systemd service with the current runtime config; it does not validate, render, or sync source changes.
+- `apply` is the preferred full operational path: validate, render, sync, install/upgrade the managed binary if needed, install the systemd unit, and restart the service.
 - `proxy preview` is a temporary client-side preview of proxy include output. It does not modify `rendered/`. Top-level `render` writes the full instance snapshot into `rendered/`.
+
+`frpdeck check-update` checks for a newer managed FRP binary, and `frpdeck upgrade` upgrades that binary. Neither command upgrades the installed frpdeck Python package; use your Python package manager for that.
+
+Doctor modes:
+
+```bash
+frpdeck doctor                         # current-directory instance plus system
+frpdeck doctor --instance ./my-client  # selected instance plus system
+frpdeck doctor --system-only           # system environment only
+```
 
 Write commands accept `--sudo` and re-exec the entire command via sudo when needed. This applies to instance-scaffold, render/sync/apply/reload/restart/upgrade/uninstall workflows, structured proxy mutations, and MCP wrapper install or uninstall. You can still run `sudo frpdeck ...` manually, but `frpdeck ... --sudo` is the preferred retry path because the command itself can fail early before doing partial work.
 
@@ -233,11 +255,25 @@ frpdeck proxy add http \
 
 `--custom-domain` is repeatable, and it can be combined with `--subdomain` when you want both selectors on the same proxy.
 
+Disable a proxy while retaining its definition:
+
+```bash
+frpdeck proxy disable app-http --instance ./my-client
+```
+
+Permanently delete a proxy definition from `proxies.yaml`:
+
+```bash
+frpdeck proxy remove app-http --instance ./my-client
+```
+
+In short, `proxy disable` preserves the definition with `enabled: false`; `proxy remove` permanently deletes it. Both require a later `apply` to deploy the changed desired state.
+
 ## MCP
 
 `frpdeck` ships with a local stdio MCP thin wrapper over structured proxy CRUD, import, and preview tools plus read-only status resources. It is designed to bind to one instance directory at a time and is best used through a generated wrapper script.
 
-Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point your MCP client at that script. Prefer the generated wrapper over writing your own unless you have a specific reason to customize startup behavior. The wrapper binds to your chosen instance directory and, by default, embeds the Python interpreter running `frpdeck` when the script is created. Use `--python /path/to/python` if you need to override that explicitly.
+Recommended workflow: generate a bound wrapper script with `frpdeck mcp install-stdio-wrapper` and point your local MCP client at that script. Prefer the generated wrapper over writing your own unless you have a specific reason to customize startup behavior. The target must already be a valid frpdeck instance with a loadable `node.yaml`. The wrapper binds to the chosen instance directory and, by default, embeds the Python interpreter running `frpdeck` when the script is created. Use `--python /path/to/python` if you need to override that explicitly.
 
 In practice, wrapper scripts are most commonly generated for client instances, because proxy configuration is usually managed on the client side. That is a usage pattern rather than a hard restriction: the MCP wrapper is tied to an instance directory, not to a separate client-only mode in the documentation.
 
@@ -256,7 +292,24 @@ This is equivalent to:
 frpdeck mcp install-stdio-wrapper --instance /path/to/your-instance
 ```
 
-The command writes `/path/to/your-instance/start-mcp-stdio.sh`, binds that script to the resolved absolute instance path, and embeds the Python interpreter that is running `frpdeck` at generation time. Replace the example path with your own instance directory.
+The command writes `/path/to/your-instance/start-mcp-stdio.sh`, binds that script to the resolved absolute instance path, embeds the Python interpreter that is running `frpdeck` at generation time, and prints a local stdio configuration example that executes the wrapper directly. Replace the example path with your own instance directory. There is no built-in SSH destination.
+
+The local example has this shape:
+
+```bash
+claude mcp add --scope user --transport stdio frpdeck -- \
+  /path/to/your-instance/start-mcp-stdio.sh
+```
+
+For an explicitly remote setup, ask the install command to print additional SSH examples:
+
+```bash
+frpdeck mcp install-stdio-wrapper \
+  --instance /path/to/your-instance \
+  --ssh-host your-ssh-host
+```
+
+`--ssh-host` only controls the extra output examples; it does not change the generated wrapper file.
 
 If you need to start the server manually without the wrapper, you can still use:
 
@@ -270,7 +323,7 @@ For a bound one-instance server, the direct form is:
 python -m frpdeck.mcp.server --instance-dir /path/to/your-instance
 ```
 
-Before configuring Claude Code, manually verify the SSH command from the Claude Code machine. Replace the host name and path with your own SSH destination and instance directory:
+For the explicit remote mode, manually verify the SSH command from the MCP client machine. Replace the host name and path with your own SSH destination and instance directory:
 
 ```bash
 ssh your-ssh-host /path/to/your-instance/start-mcp-stdio.sh
@@ -297,9 +350,9 @@ Current MCP scope is intentionally small:
 
 Write operations append audit records under `state/audit/audit.jsonl`, and proxy mutations also create revision snapshots under `state/revisions/`. This is intended to make changes traceable and manually recoverable without turning the tool into a full control plane.
 
-### SSH and BatchMode
+### Optional remote SSH and BatchMode
 
-`BatchMode yes` is useful for unattended or scripted SSH sessions because it disables interactive password prompts and host-key confirmation. Do not treat it as the first step.
+This section applies only when you explicitly use `--ssh-host`. `BatchMode yes` is useful for unattended or scripted SSH sessions because it disables interactive password prompts and host-key confirmation. Do not treat it as the first step.
 
 Recommended order:
 

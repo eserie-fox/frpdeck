@@ -6,6 +6,9 @@ from pathlib import Path
 
 import typer
 
+from frpdeck.commands._help import MAINTENANCE_AND_DIAGNOSTICS
+from frpdeck.commands.output import echo_error
+from frpdeck.domain.errors import FrpdeckError
 from frpdeck.domain.versioning import compare_versions, normalize_version
 from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.installer import read_current_version
@@ -14,29 +17,33 @@ from frpdeck.storage.load import load_node_config
 
 
 def register(app: typer.Typer) -> None:
-    @app.command("check-update")
+    @app.command("check-update", rich_help_panel=MAINTENANCE_AND_DIAGNOSTICS)
     def check_update_command(
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
     ) -> None:
-        """Check whether a newer binary is available."""
+        """Check for a newer managed FRP binary."""
         instance_dir = instance.resolve()
-        node = load_node_config(instance_dir)
-        with instance_logging_context(instance_dir, node=node):
-            current = read_current_version(instance_dir)
-            if node.binary.version:
-                target = normalize_version(node.binary.version) or node.binary.version
-                mode = "pinned"
-            else:
-                release = get_release(node.binary)
-                target = release.version
-                mode = "latest"
-            comparison = compare_versions(current, target)
-            if comparison is None:
-                update_available = "unknown"
-                comparison_note = "unable to compare current_version and target_version reliably"
-            else:
-                update_available = "true" if comparison < 0 else "false"
-                comparison_note = None
+        try:
+            node = load_node_config(instance_dir)
+            with instance_logging_context(instance_dir, node=node):
+                current = read_current_version(instance_dir)
+                if node.binary.version:
+                    target = normalize_version(node.binary.version) or node.binary.version
+                    mode = "pinned"
+                else:
+                    release = get_release(node.binary)
+                    target = release.version
+                    mode = "latest"
+                comparison = compare_versions(current, target)
+                if comparison is None:
+                    update_available = "unknown"
+                    comparison_note = "unable to compare current_version and target_version reliably"
+                else:
+                    update_available = "true" if comparison < 0 else "false"
+                    comparison_note = None
+        except (FrpdeckError, OSError, UnicodeError) as exc:
+            echo_error(f"managed FRP binary update check failed: {exc}")
+            raise typer.Exit(code=1) from exc
         typer.echo(f"current_version: {current or 'unknown'}")
         typer.echo(f"target_version: {target}")
         typer.echo(f"mode: {mode}")

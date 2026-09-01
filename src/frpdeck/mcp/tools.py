@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -89,11 +89,10 @@ def update_proxy_tool(
 def remove_proxy_tool(
     instance_dir: str | Path,
     name: str,
-    soft: bool = True,
     *,
     facade: ProxyFacade | None = None,
 ) -> FacadeResult:
-    return (facade or ProxyFacade()).remove_proxy(resolve_instance_dir(instance_dir), name, soft=soft)
+    return (facade or ProxyFacade()).remove_proxy(resolve_instance_dir(instance_dir), name)
 
 
 def enable_proxy_tool(instance_dir: str | Path, name: str, *, facade: ProxyFacade | None = None) -> FacadeResult:
@@ -142,11 +141,13 @@ def _server_info(mode: str, bound_instance_dir: Path | None, *, server_name: str
     )
 
 
-ToolShape = Literal["instance_only", "name", "update", "remove"]
+ToolShape = Literal["instance_only", "name", "update"]
 ToolArgs = tuple[Any, ...]
-ToolKwargs = dict[str, Any] | None
-ToolInvoker = Callable[[str | Path, ToolArgs, ToolKwargs], FacadeResult]
-ToolWrapperBuilder = Callable[[Path | None, ToolInvoker], Callable[..., FacadeResult]]
+ToolInvoker = Callable[[str | Path, ToolArgs], FacadeResult]
+ToolWrapperBuilder = Callable[
+    [Path | None, ToolInvoker],
+    Callable[..., Awaitable[FacadeResult]],
+]
 
 
 @dataclass(slots=True, frozen=True)
@@ -171,7 +172,11 @@ _TOOL_SPECS: tuple[ToolSpec, ...] = (
         "update_proxy", "update_proxy", "Apply a structured patch to an existing proxy.", "update", "update_proxy_tool"
     ),
     ToolSpec(
-        "remove_proxy", "remove_proxy", "Remove a proxy, soft-disabling it by default.", "remove", "remove_proxy_tool"
+        "remove_proxy",
+        "remove_proxy",
+        "Permanently delete a proxy definition from proxies.yaml.",
+        "name",
+        "remove_proxy_tool",
     ),
     ToolSpec("enable_proxy", "enable_proxy", "Enable a proxy in proxies.yaml.", "name", "enable_proxy_tool"),
     ToolSpec("disable_proxy", "disable_proxy", "Disable a proxy in proxies.yaml.", "name", "disable_proxy_tool"),
@@ -197,7 +202,7 @@ def register_tools(
     tool_facade = facade or ProxyFacade()
     audit_meta = {"mode": mode, "server_name": server_name}
 
-    def server_info() -> ServerInfoResult:
+    async def server_info() -> ServerInfoResult:
         """Return lightweight MCP diagnostic information for this server instance."""
         return _server_info(mode, bound_instance_dir, server_name=server_name)
 
@@ -246,7 +251,7 @@ def _build_add_proxy_wrapper(
 ) -> Callable[..., FacadeResult]:
     if bound_instance_dir is not None:
 
-        def tool(
+        async def tool(
             protocol: ProxyProtocol,
             name: str,
             local_port: int,
@@ -277,7 +282,7 @@ def _build_add_proxy_wrapper(
 
         return tool
 
-    def tool(
+    async def tool(
         instance_dir: str,
         protocol: ProxyProtocol,
         name: str,
@@ -317,7 +322,7 @@ def _build_import_proxy_file_wrapper(
 ) -> Callable[..., FacadeResult]:
     if bound_instance_dir is not None:
 
-        def tool(file_path: str) -> FacadeResult:
+        async def tool(file_path: str) -> FacadeResult:
             return _safe_facade_call(
                 "import_proxy_file",
                 bound_instance_dir,
@@ -328,7 +333,7 @@ def _build_import_proxy_file_wrapper(
 
         return tool
 
-    def tool(instance_dir: str, file_path: str) -> FacadeResult:
+    async def tool(instance_dir: str, file_path: str) -> FacadeResult:
         return _safe_facade_call(
             "import_proxy_file",
             instance_dir,
@@ -351,14 +356,13 @@ def _build_tool_wrapper(
     if mode == "bound":
         assert bound_instance_dir is not None
 
-    def invoke(instance_dir: str | Path, args: ToolArgs = (), kwargs: ToolKwargs = None) -> FacadeResult:
+    def invoke(instance_dir: str | Path, args: ToolArgs = ()) -> FacadeResult:
         return _call_tool(
             spec,
             instance_dir,
             facade=facade,
             audit_meta=audit_meta,
             args=args,
-            kwargs=kwargs,
         )
 
     try:
@@ -375,13 +379,12 @@ def _call_tool(
     facade: ProxyFacade,
     audit_meta: dict[str, Any],
     args: tuple[Any, ...] = (),
-    kwargs: dict[str, Any] | None = None,
 ) -> FacadeResult:
     caller = _resolve_tool_caller(spec)
     return _safe_facade_call(
         spec.operation,
         instance_dir,
-        lambda: caller(instance_dir, *args, facade=facade, **(kwargs or {})),
+        lambda: caller(instance_dir, *args, facade=facade),
         audit_source="mcp",
         audit_meta=audit_meta,
     )
@@ -397,12 +400,12 @@ def _resolve_tool_caller(spec: ToolSpec) -> Callable[..., FacadeResult]:
 def _build_instance_only_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     if bound_instance_dir is not None:
 
-        def tool() -> FacadeResult:
+        async def tool() -> FacadeResult:
             return invoke(bound_instance_dir)
 
         return tool
 
-    def tool(instance_dir: str) -> FacadeResult:
+    async def tool(instance_dir: str) -> FacadeResult:
         return invoke(instance_dir)
 
     return tool
@@ -411,12 +414,12 @@ def _build_instance_only_tool(bound_instance_dir: Path | None, invoke: ToolInvok
 def _build_name_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     if bound_instance_dir is not None:
 
-        def tool(name: str) -> FacadeResult:
+        async def tool(name: str) -> FacadeResult:
             return invoke(bound_instance_dir, (name,))
 
         return tool
 
-    def tool(instance_dir: str, name: str) -> FacadeResult:
+    async def tool(instance_dir: str, name: str) -> FacadeResult:
         return invoke(instance_dir, (name,))
 
     return tool
@@ -425,27 +428,13 @@ def _build_name_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
 def _build_update_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
     if bound_instance_dir is not None:
 
-        def tool(name: str, patch_spec: dict[str, Any]) -> FacadeResult:
+        async def tool(name: str, patch_spec: dict[str, Any]) -> FacadeResult:
             return invoke(bound_instance_dir, (name, patch_spec))
 
         return tool
 
-    def tool(instance_dir: str, name: str, patch_spec: dict[str, Any]) -> FacadeResult:
+    async def tool(instance_dir: str, name: str, patch_spec: dict[str, Any]) -> FacadeResult:
         return invoke(instance_dir, (name, patch_spec))
-
-    return tool
-
-
-def _build_remove_tool(bound_instance_dir: Path | None, invoke: ToolInvoker):
-    if bound_instance_dir is not None:
-
-        def tool(name: str, soft: bool = True) -> FacadeResult:
-            return invoke(bound_instance_dir, (name,), {"soft": soft})
-
-        return tool
-
-    def tool(instance_dir: str, name: str, soft: bool = True) -> FacadeResult:
-        return invoke(instance_dir, (name,), {"soft": soft})
 
     return tool
 
@@ -454,5 +443,4 @@ _SHAPE_BUILDERS: dict[ToolShape, ToolWrapperBuilder] = {
     "instance_only": _build_instance_only_tool,
     "name": _build_name_tool,
     "update": _build_update_tool,
-    "remove": _build_remove_tool,
 }

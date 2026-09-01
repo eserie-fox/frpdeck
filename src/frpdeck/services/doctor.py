@@ -18,7 +18,12 @@ class DoctorCheck:
     detail: str
 
 
-def run_doctor(instance_dir: Path | None, node: NodeBase | None = None) -> list[DoctorCheck]:
+def run_doctor(
+    instance_dir: Path | None,
+    node: NodeBase | None = None,
+    *,
+    config_error: str | None = None,
+) -> list[DoctorCheck]:
     """Return diagnostic results."""
     systemctl_available = command_exists("systemctl")
     checks = [
@@ -35,12 +40,13 @@ def run_doctor(instance_dir: Path | None, node: NodeBase | None = None) -> list[
         ),
     ]
     if instance_dir is not None:
+        node_path = instance_dir / "node.yaml"
         checks.extend(
             [
                 DoctorCheck(
                     "node.yaml",
-                    (instance_dir / "node.yaml").exists(),
-                    f"expected {(instance_dir / 'node.yaml').resolve()}",
+                    node_path.exists(),
+                    f"expected {node_path.resolve()}",
                 ),
                 DoctorCheck(
                     "state dir",
@@ -49,6 +55,10 @@ def run_doctor(instance_dir: Path | None, node: NodeBase | None = None) -> list[
                 ),
             ]
         )
+        if config_error is not None:
+            checks.append(DoctorCheck("instance configuration", False, config_error))
+        elif node is not None:
+            checks.append(DoctorCheck("instance configuration", True, f"loaded {node_path.resolve()}"))
     if node is not None:
         paths = node.resolved_paths(instance_dir or Path.cwd())
         checks.extend(
@@ -60,7 +70,7 @@ def run_doctor(instance_dir: Path | None, node: NodeBase | None = None) -> list[
                 ),
                 DoctorCheck(
                     "systemd_unit_dir write",
-                    os.access(paths.systemd_unit_dir, os.W_OK),
+                    _has_write_access(paths.systemd_unit_dir),
                     f"target {paths.systemd_unit_dir}; use sudo or adjust paths.systemd_unit_dir if this fails",
                 ),
             ]

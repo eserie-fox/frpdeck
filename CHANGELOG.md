@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 1.2.0
+
+- Reorganized top-level and proxy help into workflow-oriented Rich panels while keeping every supported command path visible.
+- Standardized expected CLI failures as concise stderr errors without Python tracebacks, while preserving clean JSON envelopes for machine-readable status and proxy commands.
+- Made `doctor` inspect the current-directory instance by default, added `--system-only`, and converted broken instance configuration into a failed diagnostic check.
+- Changed `proxy remove` to permanently delete definitions in all CLI, service, facade, audit, and MCP paths; `proxy disable` remains the operation for retaining a disabled definition.
+- Removed the legacy remove-mode options and MCP parameter, including the old audit target metadata.
+- Made MCP stdio wrapper output local-first, removed the built-in SSH destination, made remote examples opt-in through `--ssh-host`, and required a valid instance before installation.
+- Clarified staged `validate`/`render`/`sync`, client-only `reload`, systemd `restart`, and managed FRP binary update semantics across help and documentation.
+- Removed the unused `frpdeck.services.status` module in favor of the active `status_service` implementation.
+
 ## 1.1.4
 
 - Added `client.web_server.enable`, defaulting to `true`, so client instances can explicitly control whether frpc's web server is rendered.

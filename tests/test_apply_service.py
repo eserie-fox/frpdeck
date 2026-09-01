@@ -145,16 +145,31 @@ def test_apply_service_stops_after_validation_failure(monkeypatch, tmp_path: Pat
     assert not (tmp_path / "state" / "last_apply.json").exists()
 
 
-def test_analyze_apply_root_requirements_reports_systemctl_and_unit_reasons(tmp_path: Path) -> None:
+def test_analyze_apply_root_requirements_reports_systemctl_and_unit_reasons(monkeypatch, tmp_path: Path) -> None:
     node = build_client_node()
+    instance_dir = tmp_path.resolve()
+    paths = node.resolved_paths(instance_dir)
+    unit_path = paths.unit_path(node.service.service_name)
 
-    reasons = analyze_apply_root_requirements(tmp_path, node)
+    monkeypatch.setattr(
+        "frpdeck.services.apply_service.can_write_file",
+        lambda path: path != unit_path,
+    )
+    monkeypatch.setattr("frpdeck.services.apply_service.can_write_directory", lambda path: True)
+    monkeypatch.setattr("frpdeck.services.apply_service.can_replace_directory", lambda path: True)
+    monkeypatch.setattr("frpdeck.services.apply_service.root_owned_hint", lambda path: "")
 
-    assert "will manage system service via systemctl" in reasons
-    assert any("/etc/systemd/system" in reason for reason in reasons)
+    reasons = analyze_apply_root_requirements(tmp_path, node, install_if_missing=False)
+
+    assert reasons == [
+        "will manage system service via systemctl",
+        f"will write systemd unit under {paths.systemd_unit_dir}",
+    ]
 
 
-def test_analyze_apply_root_requirements_does_not_misreport_writable_custom_unit_dir(tmp_path: Path) -> None:
+def test_analyze_apply_root_requirements_does_not_misreport_writable_custom_unit_dir(
+    monkeypatch, tmp_path: Path
+) -> None:
     node = build_client_node(
         overrides={
             "paths": {
@@ -164,15 +179,12 @@ def test_analyze_apply_root_requirements_does_not_misreport_writable_custom_unit
             }
         }
     )
-    (tmp_path / "runtime" / "config").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "runtime" / "bin").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "state").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "rendered").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "units").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "backups").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "runtime" / "logs").mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr("frpdeck.services.apply_service.can_write_file", lambda path: True)
+    monkeypatch.setattr("frpdeck.services.apply_service.can_write_directory", lambda path: True)
+    monkeypatch.setattr("frpdeck.services.apply_service.can_replace_directory", lambda path: True)
+    monkeypatch.setattr("frpdeck.services.apply_service.root_owned_hint", lambda path: "")
 
     reasons = analyze_apply_root_requirements(tmp_path, node, install_if_missing=False)
 
-    assert "will manage system service via systemctl" in reasons
-    assert not any("will write systemd unit under" in reason for reason in reasons)
+    assert reasons == ["will manage system service via systemctl"]

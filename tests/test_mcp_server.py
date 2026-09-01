@@ -17,6 +17,7 @@ from frpdeck.mcp.tools import (
     import_proxy_file_tool,
     list_proxies_tool,
     preview_proxy_changes_tool,
+    remove_proxy_tool,
 )
 from frpdeck.storage.dump import dump_json_data, dump_yaml_model
 from tests.support import build_client_node
@@ -78,7 +79,7 @@ def _call_tool(server: MCPServer, name: str, arguments: dict[str, object]) -> di
 
 def _read_resource(server: MCPServer, uri: str) -> list[object]:
     async def run() -> list[object]:
-        return await server.read_resource(uri)
+        return list(await server.read_resource(uri))
 
     return anyio.run(run)
 
@@ -157,6 +158,19 @@ def test_mcp_import_proxy_file_tool_imports_mapping(tmp_path: Path) -> None:
     assert result.data["proxy"]["name"] == "imported-web"
 
 
+def test_mcp_remove_proxy_tool_permanently_deletes_definition(tmp_path: Path) -> None:
+    _write_client_instance(tmp_path)
+
+    result = remove_proxy_tool(str(tmp_path), "dns")
+
+    assert result.ok is True
+    assert result.operation == "remove_proxy"
+    assert result.data["operation"] == "remove"
+    assert result.data["removed_name"] == "dns"
+    remaining = list_proxies_tool(str(tmp_path))
+    assert [proxy["name"] for proxy in remaining.data["proxies"]] == ["ssh"]
+
+
 def test_instance_status_resource_returns_json(tmp_path: Path) -> None:
     _write_client_instance(tmp_path)
 
@@ -200,6 +214,8 @@ def test_generic_mode_tool_schema_keeps_instance_dir() -> None:
     assert "instance_dir" in tools["list_proxies"].input_schema["properties"]
     assert "instance_dir" in tools["add_proxy"].input_schema["properties"]
     assert "instance_dir" in tools["import_proxy_file"].input_schema["properties"]
+    assert set(tools["remove_proxy"].input_schema["properties"]) == {"instance_dir", "name"}
+    assert "permanently" in tools["remove_proxy"].description.lower()
     assert tools["add_proxy"].input_schema["properties"]["protocol"]["enum"] == ["tcp", "udp", "http", "https"]
     assert "apply_proxy_changes" not in tools
     assert "validate_proxy_set" not in tools
@@ -211,6 +227,7 @@ def test_bound_mode_tool_schema_omits_instance_dir() -> None:
     assert "instance_dir" not in tools["list_proxies"].input_schema.get("properties", {})
     assert "instance_dir" not in tools["add_proxy"].input_schema.get("properties", {})
     assert "instance_dir" not in tools["import_proxy_file"].input_schema.get("properties", {})
+    assert set(tools["remove_proxy"].input_schema["properties"]) == {"name"}
 
 
 def test_bound_and_generic_modes_expose_same_tool_names_with_expected_instance_dir_difference() -> None:

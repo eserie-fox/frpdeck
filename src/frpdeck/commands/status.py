@@ -6,21 +6,39 @@ from pathlib import Path
 
 import typer
 
-from frpdeck.commands.output import emit_json_envelope
+from frpdeck.commands._help import COMMON_WORKFLOW
+from frpdeck.commands.output import echo_error, echo_warning, emit_json_envelope
+from frpdeck.domain.errors import ConfigLoadError, FrpdeckError
+from frpdeck.domain.status_models import InstanceStatus
 from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.status_service import StatusService
+from frpdeck.storage.load import load_node_config
 
 
 def register(app: typer.Typer) -> None:
-    @app.command("status")
+    @app.command("status", rich_help_panel=COMMON_WORKFLOW)
     def status_command(
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
         json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
     ) -> None:
         """Show instance and service status."""
         instance_dir = instance.resolve()
-        with instance_logging_context(instance_dir, stream_override="none" if json_output else None):
-            summary = StatusService().get_instance_status(instance_dir)
+        try:
+            try:
+                node = load_node_config(instance_dir)
+            except ConfigLoadError:
+                node = None
+            if node is None:
+                summary = StatusService().get_instance_status(instance_dir)
+            else:
+                with instance_logging_context(
+                    instance_dir,
+                    node=node,
+                    stream_override="none" if json_output else None,
+                ):
+                    summary = StatusService().get_instance_status(instance_dir)
+        except (FrpdeckError, OSError, UnicodeError) as exc:
+            summary = InstanceStatus(instance=str(instance_dir), errors=[f"status failed: {exc}"])
         if json_output:
             emit_json_envelope(
                 command="status",
@@ -46,8 +64,8 @@ def register(app: typer.Typer) -> None:
         if summary.client_runtime_status is not None:
             typer.echo(f"client_runtime_available: {summary.client_runtime_status.available}")
         for warning in summary.warnings:
-            typer.echo(f"WARNING: {warning}")
+            echo_warning(warning)
         for error in summary.errors:
-            typer.echo(f"ERROR: {error}")
+            echo_error(error)
         if summary.errors:
             raise typer.Exit(code=1)

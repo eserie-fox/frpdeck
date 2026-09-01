@@ -7,15 +7,11 @@ from pathlib import Path
 import typer
 
 from frpdeck.commands._download_progress import CliDownloadProgressReporter
+from frpdeck.commands._help import MAINTENANCE_AND_DIAGNOSTICS
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
-from frpdeck.domain.errors import (
-    CommandExecutionError,
-    ConfigLoadError,
-    ConfigValidationError,
-    DownloadError,
-    PermissionOperationError,
-)
+from frpdeck.commands.output import echo_error
+from frpdeck.domain.errors import FrpdeckError
 from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.installer import analyze_upgrade_root_requirements, install_from_archive, install_from_release
 from frpdeck.services.release_checker import get_release
@@ -25,7 +21,7 @@ from frpdeck.storage.load import load_node_config
 
 
 def register(app: typer.Typer) -> None:
-    @app.command("upgrade")
+    @app.command("upgrade", rich_help_panel=MAINTENANCE_AND_DIAGNOSTICS)
     def upgrade_command(
         ctx: typer.Context,
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
@@ -33,7 +29,7 @@ def register(app: typer.Typer) -> None:
         restart_after: bool = typer.Option(True, "--restart/--no-restart", help="Restart service after upgrade"),
         sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
     ) -> None:
-        """Upgrade the installed frp binary."""
+        """Upgrade the managed FRP binary."""
         instance_dir = instance.resolve()
         resolved_archive = archive.resolve() if archive is not None else None
         invocation = build_command_invocation(
@@ -98,13 +94,7 @@ def register(app: typer.Typer) -> None:
                     )
                 if restart_after:
                     restart_service(node.service.service_name)
-        except (
-            CommandExecutionError,
-            ConfigLoadError,
-            ConfigValidationError,
-            DownloadError,
-            PermissionOperationError,
-        ) as exc:
-            typer.echo(f"ERROR: {exc}")
+        except (FrpdeckError, OSError, UnicodeError) as exc:
+            echo_error(str(exc))
             raise typer.Exit(code=1) from exc
         typer.echo(f"upgraded to {version}")

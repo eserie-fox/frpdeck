@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from frpdeck.domain.errors import ProxyAlreadyExistsError, ProxyConflictError
+from frpdeck.domain.errors import ProxyAlreadyExistsError, ProxyConflictError, ProxyNotFoundError
 from frpdeck.domain.proxy import HttpProxyConfig, HttpsProxyConfig, ProxyFile, TcpProxyConfig, UdpProxyConfig
 from frpdeck.domain.proxy_management import ProxyUpdatePatch
 from frpdeck.services.proxy_manager import ProxyManager
@@ -110,28 +110,36 @@ def test_enable_and_disable_proxy_flip_enabled_state(tmp_path: Path) -> None:
     assert records[1]["after"]["proxy"]["enabled"] is True
 
 
-def test_remove_proxy_soft_disables_and_hard_deletes(tmp_path: Path) -> None:
+def test_remove_proxy_permanently_deletes_enabled_and_disabled_proxies(tmp_path: Path) -> None:
     _write_client_instance(
         tmp_path,
         proxies=[
             TcpProxyConfig(name="ssh", local_port=22, remote_port=6000),
-            UdpProxyConfig(name="dns", local_port=53, remote_port=6001),
+            UdpProxyConfig(name="dns", local_port=53, remote_port=6001, enabled=False),
         ],
     )
     manager = ProxyManager()
 
-    soft_result = manager.remove_proxy(tmp_path, "ssh")
-    assert soft_result.changed is True
-    assert load_proxy_file(tmp_path).proxies[0].enabled is False
+    enabled_result = manager.remove_proxy(tmp_path, "ssh")
+    assert enabled_result.changed is True
+    assert enabled_result.removed_name == "ssh"
+    assert enabled_result.proxy is None
+    assert "permanently removed from proxies.yaml" in enabled_result.message
+    assert [proxy.name for proxy in load_proxy_file(tmp_path).proxies] == ["dns"]
 
-    hard_result = manager.remove_proxy(tmp_path, "dns", soft=False)
-    assert hard_result.removed_name == "dns"
-    assert [proxy.name for proxy in load_proxy_file(tmp_path).proxies] == ["ssh"]
+    disabled_result = manager.remove_proxy(tmp_path, "dns")
+    assert disabled_result.changed is True
+    assert disabled_result.removed_name == "dns"
+    assert load_proxy_file(tmp_path).proxies == []
     records = _load_audit_records(tmp_path)
     assert records[0]["operation"] == "proxy_remove"
-    assert records[0]["target"]["remove_mode"] == "soft"
+    assert records[0]["target"] == {"proxy_name": "ssh"}
     assert records[1]["operation"] == "proxy_remove"
-    assert records[1]["target"]["remove_mode"] == "hard"
+    assert records[1]["target"] == {"proxy_name": "dns"}
+    assert len(_revision_dirs(tmp_path)) == 2
+
+    with pytest.raises(ProxyNotFoundError, match="proxy not found: missing"):
+        manager.remove_proxy(tmp_path, "missing")
 
 
 def test_validate_proxy_set_reports_remote_port_conflicts(tmp_path: Path) -> None:

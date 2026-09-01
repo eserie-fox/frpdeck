@@ -6,23 +6,25 @@ from pathlib import Path
 
 import typer
 
+from frpdeck.commands._help import PREFLIGHT_AND_ADVANCED_DEPLOYMENT
 from frpdeck.commands._invocation import build_command_invocation
 from frpdeck.commands._privilege import maybe_reexec_with_sudo, raise_for_missing_privileges, unreadable_path_reason
+from frpdeck.commands.output import echo_error
 from frpdeck.domain.enums import Role
-from frpdeck.domain.errors import ConfigLoadError, PermissionOperationError
+from frpdeck.domain.errors import FrpdeckError, PermissionOperationError
 from frpdeck.logging.daily_symlink import instance_logging_context
 from frpdeck.services.renderer import analyze_render_root_requirements, render_instance
 from frpdeck.storage.load import load_node_config, load_proxy_file
 
 
 def register(app: typer.Typer) -> None:
-    @app.command("render")
+    @app.command("render", rich_help_panel=PREFLIGHT_AND_ADVANCED_DEPLOYMENT)
     def render_command(
         ctx: typer.Context,
         instance: Path = typer.Option(Path("."), "--instance", help="Instance directory"),
         sudo: bool = typer.Option(False, "--sudo", help="Re-exec the full command via sudo when root is required"),
     ) -> None:
-        """Render FRP and systemd files into rendered/ only."""
+        """Render generated files into rendered/ only."""
         instance_dir = instance.resolve()
         invocation = build_command_invocation(ctx, overrides={"instance": instance_dir})
         node_config_path = instance_dir / "node.yaml"
@@ -55,10 +57,10 @@ def register(app: typer.Typer) -> None:
                 proxies = load_proxy_file(instance_dir) if node.role == Role.CLIENT else None
                 summary = render_instance(instance_dir, node, proxies)
         except PermissionOperationError as exc:
-            typer.echo(f"ERROR: {exc}")
+            echo_error(str(exc))
             raise typer.Exit(code=1) from exc
-        except ConfigLoadError as exc:
-            typer.echo(f"ERROR: render failed: {exc}")
+        except (FrpdeckError, OSError, UnicodeError) as exc:
+            echo_error(f"render failed: {exc}")
             raise typer.Exit(code=1) from exc
         typer.echo(f"main config: {summary.main_config_path}")
         typer.echo(f"systemd unit: {summary.systemd_unit_path}")

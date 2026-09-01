@@ -123,7 +123,13 @@ Recommended workflow is still to generate a bound wrapper:
 frpdeck mcp install-stdio-wrapper --instance /path/to/instance
 ```
 
-Then manually run the generated wrapper over SSH before configuring an MCP client.
+The target must contain a loadable `node.yaml`. By default the command prints a local stdio example that executes the generated wrapper directly. To also print remote SSH examples and BatchMode guidance, provide an explicit host:
+
+```bash
+frpdeck mcp install-stdio-wrapper --instance /path/to/instance --ssh-host your-ssh-host
+```
+
+The host only affects the printed examples; it is not embedded in the wrapper.
 
 ## Current Design Constraints
 

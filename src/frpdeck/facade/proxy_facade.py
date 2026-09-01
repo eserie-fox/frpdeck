@@ -83,12 +83,12 @@ class ProxyFacade:
         except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)
 
-    def remove_proxy(self, instance_dir: Path, name: str, soft: bool = True) -> FacadeResult:
+    def remove_proxy(self, instance_dir: Path, name: str) -> FacadeResult:
         operation = "remove_proxy"
         instance = instance_dir.resolve()
         try:
             with instance_logging_context(instance):
-                result = self._manager.remove_proxy(instance, name, soft=soft)
+                result = self._manager.remove_proxy(instance, name)
             return self._success(operation, instance, self._serialize_mutation_result(result), warnings=result.warnings)
         except Exception as exc:  # noqa: BLE001 - facade calls always return a stable result envelope
             return self._error(operation, instance, exc)

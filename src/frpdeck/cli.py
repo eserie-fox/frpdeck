@@ -28,6 +28,7 @@ from frpdeck.version import __version__
 
 app = typer.Typer(
     help="Structured FRP deployment and maintenance CLI",
+    epilog="Typical workflow: init → edit configuration → apply → status",
     invoke_without_command=True,
 )
 
@@ -53,20 +54,20 @@ def callback(
 
 for module in [
     init,
-    render,
-    validate,
-    sync,
     apply,
+    status,
+    proxy,
+    validate,
+    render,
+    sync,
     reload,
     restart,
-    status,
-    uninstall,
+    doctor,
     check_update,
     upgrade,
-    doctor,
-    proxy,
-    mcp,
+    uninstall,
     audit,
+    mcp,
 ]:
     module.register(app)
 

@@ -73,7 +73,7 @@ Behavior:
 - `frpdeck_logging.level` uses Python logging's formal level names
 - Allowed `stream` values are `stderr`, `stdout`, and `none`
 - Operational defaults set `frpdeck_logging.stream` to `stderr`
-- With an instance context, logging initialization is fail-fast: invalid instance logging config or missing instance config aborts the operation instead of silently degrading
+- With an instance context, logging initialization is normally fail-fast. Diagnostic aggregation commands such as `status` and `doctor` deliberately fall back to default logging when configuration cannot be loaded so they can report the configuration failure without a traceback.
 - File logging uses frpdeck's local daily symlink handler
 - Default instance-local file path is `state/logs/frpdeck.log`
 
@@ -150,13 +150,29 @@ Current scaffold behavior:
 
 ## Command Semantics
 
-Operational commands intentionally split source validation, rendered output, runtime sync, and reload/apply behavior:
+The normal operator workflow is:
 
-- `validate` checks source config only and does not write `rendered/` or `runtime/config`
+```text
+init → edit configuration and secrets → apply → status
+```
+
+`apply` already includes validation and rendering. The individual commands intentionally expose optional preflight and staged-deployment boundaries:
+
+- `validate` is an optional read-only preflight and does not write `rendered/` or `runtime/config`
 - `render` writes the formal generated snapshot into `rendered/` only
-- `sync` mirrors the managed snapshot from `rendered/` into `runtime/config` only
-- `reload` acts on the current `runtime/config` for client instances
-- `apply` runs the full workflow: validate, render, sync, install/upgrade as needed, install the unit, restart service
+- `sync` mirrors the current managed snapshot from `rendered/` into `runtime/config` only; it does not validate, render, reload, or restart
+- `reload` is client-only and uses the frpc control/web server endpoint to reload current `runtime/config` without restarting the systemd service
+- `restart` restarts the systemd service using current runtime config; it does not validate, render, or sync
+- `apply` is the preferred full deployment workflow: validate, render, sync, install/upgrade as needed, install the unit, restart service
+
+Proxy deletion has one explicit boundary:
+
+- `proxy disable NAME` retains the definition in `proxies.yaml` and sets `enabled: false`
+- `proxy remove NAME` permanently deletes the definition from `proxies.yaml`
+
+Both mutations change desired state and require a later `apply` before the running deployment reflects them.
+
+Diagnostics default to the current instance: `doctor` checks the current working directory plus the system environment, `doctor --instance PATH` selects another instance, and `doctor --system-only` skips instance checks.
 
 Mutating commands support `--sudo` and treat it as a full-command re-exec flag, not a late retry hint. For non-root users, `frpdeck ... --sudo` re-execs the entire write command through sudo before config loading or filesystem mutation. Without `--sudo`, mutating commands fail early when required config inputs are not readable or managed targets are not writable by the current user.
 
@@ -294,6 +310,8 @@ When FRP binaries need to be installed or replaced, frpdeck uses the following s
 - GitHub release download based on `binary.*`
 
 `apply` and `upgrade` surface download-stage progress in human-readable text mode. Download failures remain fatal and are reported through the existing CLI error path; there is no retry or compatibility fallback layer in the current design.
+
+`check-update` checks for a newer managed FRP binary and `upgrade` replaces that managed binary. These commands do not update the frpdeck Python package.
 
 ## Logging Responsibilities
 
