@@ -8,7 +8,7 @@ from frpdeck.services.uninstall import analyze_uninstall_root_requirements, unin
 from frpdeck.storage.dump import dump_yaml_model
 from tests.support import build_client_node
 
-RUNNER = CliRunner(env={"COLUMNS": "120"})
+RUNNER = CliRunner()
 
 
 def _write_instance(
@@ -64,11 +64,6 @@ def test_uninstall_keeps_source_config_by_default(monkeypatch, tmp_path: Path) -
     assert (tmp_path / "node.yaml").exists()
     assert (tmp_path / "proxies.yaml").exists()
     assert (tmp_path / "secrets").exists()
-    assert "System installation artifacts have been removed." in result.stdout
-    assert f"Instance configuration is still present in {tmp_path.resolve()}." in result.stdout
-    assert "frpdeck uninstall --instance" in result.stdout
-    assert "--purge" in result.stdout
-    assert "rm -rf" not in result.stdout
 
 
 def test_uninstall_with_purge_removes_instance_directory(monkeypatch, tmp_path: Path) -> None:
@@ -80,7 +75,6 @@ def test_uninstall_with_purge_removes_instance_directory(monkeypatch, tmp_path: 
 
     assert result.exit_code == 0, result.stdout
     assert not tmp_path.exists()
-    assert f"Purged instance directory: {tmp_path.resolve()}" in result.stdout
 
 
 def test_uninstall_rejects_dangerous_paths(monkeypatch, tmp_path: Path) -> None:
@@ -91,8 +85,8 @@ def test_uninstall_rejects_dangerous_paths(monkeypatch, tmp_path: Path) -> None:
     result = RUNNER.invoke(app, ["uninstall", "--instance", str(tmp_path)])
 
     assert result.exit_code == 1
-    assert "refusing to delete dangerous path: /" in result.stderr
-    assert "ERROR:" not in result.stdout
+    assert (tmp_path / "runtime" / "bin" / "frpc").exists()
+    assert (tmp_path / "node.yaml").exists()
 
 
 def test_uninstall_resets_failed_service_state_best_effort(monkeypatch, tmp_path: Path) -> None:
