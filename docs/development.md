@@ -14,13 +14,14 @@ python3.11 -m venv .venv
 python -m pip install -e '.[dev]'
 ```
 
-The CI workflow uses `uv`, so this equivalent setup is also supported:
+The shared CI workflow uses `uv`, so this equivalent locked setup is also supported:
 
 ```bash
-uv sync --extra dev
+uv sync --locked --python 3.11 --extra dev
 ```
 
-CI installs `uv` through `astral-sh/setup-uv@v8.1.0`. This project does not commit `uv.lock`; the GitHub Actions uv cache uses `pyproject.toml` as its dependency-change signal.
+The committed `uv.lock` is the dependency source used by CI. Update it deliberately when
+dependency declarations change; CI will fail rather than rewrite it.
 
 Runtime dependencies should keep only minimum supported versions. When a newer dependency release breaks behavior,
 update the implementation and tests for the new version instead of adding long-term upper bounds.
@@ -76,11 +77,10 @@ If the local environment is missing test dependencies, install the `dev` extra f
 
 ## Build
 
-Build source and wheel artifacts with standard setuptools tooling, for example:
+Build source and wheel artifacts through uv and the configured setuptools backend:
 
 ```bash
-python -m pip install build
-python -m build
+uv build --python 3.11
 ```
 
 Current package data includes:
@@ -161,5 +161,5 @@ Configuration changes are not forward-compatible by policy right now.
 ## Verification Notes
 
 - `pytest` is the primary verification path when dev dependencies are installed
-- `python -m build` is optional smoke coverage for release artifacts when the `build` module is available
+- `uv build --python 3.11` is optional smoke coverage for release artifacts
 - Even when `build` is unavailable locally, keep package-resource smoke tests for `config_defaults/**/*.json` in the test suite
