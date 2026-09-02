@@ -17,10 +17,15 @@ This project keeps release preparation intentionally lightweight.
    uv build --python 3.11
    ```
 
-5. Commit, review, and merge the release preparation changes to `main`.
-6. Create and publish a normal GitHub Release for the intended version tag.
+5. Commit, review, and merge the release preparation changes to `main`. The resulting `main`
+   push builds and publishes the package to TestPyPI.
+6. Check the TestPyPI package, then create and push the version tag:
 
-Publishing the GitHub Release is the sole automated publication entry point. The workflow
-builds an sdist and wheel once through the shared public build workflow, then a project-local
-job publishes that artifact to PyPI through Trusted Publishing, GitHub OIDC, and the `pypi`
-environment. Tag pushes and manual dispatches do not invoke package publication.
+   ```bash
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+The `v*` tag push builds the package again and publishes it to PyPI. Manual workflow runs build
+and publish to TestPyPI. Both indexes use Trusted Publishing through their matching GitHub
+environments.
