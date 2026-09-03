@@ -17,8 +17,9 @@ This project keeps release preparation intentionally lightweight.
    uv build --python 3.11
    ```
 
-5. Commit, review, and merge the release preparation changes to `main`. The resulting `main`
-   push builds and publishes the package to TestPyPI.
+5. Commit, review, and merge the release preparation changes to `main`, then wait for normal CI.
+   Explicitly dispatch the `Publish Python package` workflow to build once and publish to
+   TestPyPI.
 6. Check the TestPyPI package, then create and push the version tag:
 
    ```bash
@@ -26,6 +27,6 @@ This project keeps release preparation intentionally lightweight.
    git push origin vX.Y.Z
    ```
 
-The `v*` tag push builds the package again and publishes it to PyPI. Manual workflow runs build
-and publish to TestPyPI. Both indexes use Trusted Publishing through their matching GitHub
-environments.
+A newly created `v*` tag builds once and publishes to PyPI. Pull requests and ordinary `main`
+pushes run CI only, while manual workflow dispatch publishes to TestPyPI. Deleting a tag does not
+build or publish. Both indexes use Trusted Publishing through their matching GitHub environments.
